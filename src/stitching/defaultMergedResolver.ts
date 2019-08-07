@@ -1,4 +1,4 @@
-import { GraphQLFieldResolver, defaultFieldResolver } from 'graphql';
+import { GraphQLFieldResolver, defaultFieldResolver, Kind, FieldNode } from 'graphql';
 import { getErrorsFromParent } from './errors';
 import { handleResult } from './checkResultAndHandleErrors';
 import { getResponseKeyFromInfo } from './getResponseKeyFromInfo';
@@ -27,10 +27,36 @@ const defaultMergedResolver: GraphQLFieldResolver<any, any> = (parent, args, con
 
 export default defaultMergedResolver;
 
-export function setMergeFieldName(
+export function wrapField(
   originalResolver: IFieldResolver<any, any>,
+  wrapper: string,
   fieldName: string
 ): IFieldResolver<any, any> {
   return (parent, args, context, info) =>
-    originalResolver(parent, args, context, { ...info, fieldName });
+    originalResolver(parent[wrapper], args, context, { ...info, fieldName });
+}
+
+export function extractField(
+  originalResolver: IFieldResolver<any, any>,
+  fieldName: string
+): IFieldResolver<any, any> {
+  return (parent, args, context, info) => {
+    const newFieldNodes: Array<FieldNode> = [];
+
+    info.fieldNodes.forEach(fieldNode => {
+      fieldNode.selectionSet.selections.forEach(selection => {
+        if (selection.kind == Kind.FIELD) {
+          if (selection.name.value === fieldName) {
+            newFieldNodes.push(selection);
+          }
+        }
+      });
+    });
+
+    return originalResolver(parent, args, context, {
+      ...info,
+      fieldName,
+      fieldNodes: newFieldNodes,
+    });
+  }
 }

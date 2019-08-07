@@ -39,7 +39,8 @@ import {
   delegateToSchema,
   delegateToRemoteSchema,
   defaultMergedResolver,
-  setMergeFieldName
+  wrapField,
+  extractField,
 } from '../stitching';
 import { SchemaExecutionConfig } from '../Interfaces';
 
@@ -564,7 +565,7 @@ type Wrap {
   });
 });
 
-describe('ExtractObjectField transform', () => {
+describe('extract object field example', () => {
   let transformedPropertySchema: GraphQLSchema;
 
   before(async () => {
@@ -582,7 +583,7 @@ describe('ExtractObjectField transform', () => {
         fieldName: 'locationName',
         resolverWrapper: (originalResolver) =>
           (parent, args, context, info) =>
-            setMergeFieldName(originalResolver, 'name')(parent.location, args, context, info),
+            wrapField(originalResolver, 'location', 'name')(parent, args, context, info),
         fieldNodeTransformer: () => {
           const newFieldNode = (parse(`
             {
@@ -628,7 +629,7 @@ describe('ExtractObjectField transform', () => {
   });
 });
 
-describe('WrapObjectField transform', () => {
+describe('wrap object field example', () => {
   let transformedPropertySchema: GraphQLSchema;
 
   before(async () => {
@@ -651,8 +652,8 @@ describe('WrapObjectField transform', () => {
         fieldName: 'wrap',
         resolverWrapper: (originalResolver) =>
           (parent, args, context, info) => ({
-              id: setMergeFieldName(originalResolver, 'id')(parent, args, context, info),
-              name: setMergeFieldName(originalResolver, 'name')(parent, args, context, info),
+              id: extractField(originalResolver, 'id')(parent, args, context, info),
+              name: extractField(originalResolver, 'name')(parent, args, context, info),
             }),
         fieldNodeTransformer: (fieldNode: FieldNode) => {
           return [...fieldNode.selectionSet.selections];
@@ -661,15 +662,19 @@ describe('WrapObjectField transform', () => {
     ]);
   });
 
-  it('should work to wrap a field', async () => {
+  it('should work to wrap a field even with aliases', async () => {
     const result = await graphql(
       transformedPropertySchema,
       `
         query($pid: ID!) {
           propertyById(id: $pid) {
-            wrap {
-              id
-              name
+            test1: wrap {
+              one: id
+              two: name
+            }
+            test2: wrap {
+              three: id
+              four: name
             }
           }
         }
@@ -684,9 +689,13 @@ describe('WrapObjectField transform', () => {
     expect(result).to.deep.equal({
       data: {
         propertyById: {
-          wrap: {
-            id: 'p1',
-            name: 'Super great hotel',
+          test1: {
+            one: 'p1',
+            two: 'Super great hotel',
+          },
+          test2: {
+            three: 'p1',
+            four: 'Super great hotel',
           },
         },
       },
