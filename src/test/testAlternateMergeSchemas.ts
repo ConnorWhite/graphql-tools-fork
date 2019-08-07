@@ -581,9 +581,7 @@ describe('extract object field example', () => {
       new TransformObjectField({
         typeName: 'Property',
         fieldName: 'locationName',
-        resolverWrapper: (originalResolver) =>
-          (parent, args, context, info) =>
-            wrapField(originalResolver, 'location', 'name')(parent, args, context, info),
+        resolverWrapper: (originalResolver) => wrapField(originalResolver, 'location', 'name'),
         fieldNodeTransformer: () => {
           const newFieldNode = (parse(`
             {
