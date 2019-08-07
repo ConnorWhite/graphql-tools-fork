@@ -650,9 +650,9 @@ describe('wrap object field example', () => {
         fieldName: 'wrap',
         resolverWrapper: (originalResolver) =>
           (parent, args, context, info) => ({
-              id: extractField(originalResolver, 'id')(parent, args, context, info),
-              name: extractField(originalResolver, 'name')(parent, args, context, info),
-            }),
+            id: extractField(originalResolver, 'id')(parent, args, context, info),
+            name: extractField(originalResolver, 'name')(parent, args, context, info),
+          }),
         fieldNodeTransformer: (fieldNode: FieldNode) => {
           return [...fieldNode.selectionSet.selections];
         },
@@ -666,17 +666,13 @@ describe('wrap object field example', () => {
       `
         query($pid: ID!) {
           propertyById(id: $pid) {
-            test1: wrap {
+            test: wrap {
               one: id
               two: name
             }
-            test2: wrap {
-              three: id
-              four: name
-            }
           }
         }
-      `,
+    `,
       {},
       {},
       {
@@ -687,13 +683,9 @@ describe('wrap object field example', () => {
     expect(result).to.deep.equal({
       data: {
         propertyById: {
-          test1: {
+          test: {
             one: 'p1',
             two: 'Super great hotel',
-          },
-          test2: {
-            three: 'p1',
-            four: 'Super great hotel',
           },
         },
       },

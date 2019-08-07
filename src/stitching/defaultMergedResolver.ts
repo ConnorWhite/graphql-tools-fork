@@ -1,4 +1,4 @@
-import { GraphQLFieldResolver, defaultFieldResolver, Kind, FieldNode } from 'graphql';
+import { GraphQLFieldResolver, defaultFieldResolver, FieldNode, Kind } from 'graphql';
 import { getErrorsFromParent } from './errors';
 import { handleResult } from './checkResultAndHandleErrors';
 import { getResponseKeyFromInfo } from './getResponseKeyFromInfo';
@@ -45,7 +45,7 @@ export function extractField(
 
     info.fieldNodes.forEach(fieldNode => {
       fieldNode.selectionSet.selections.forEach(selection => {
-        if (selection.kind == Kind.FIELD) {
+        if (selection.kind === Kind.FIELD) {
           if (selection.name.value === fieldName) {
             newFieldNodes.push(selection);
           }

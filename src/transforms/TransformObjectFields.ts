@@ -12,7 +12,8 @@ import {
   visitWithTypeInfo,
   Kind,
   SelectionSetNode,
-  SelectionNode
+  SelectionNode,
+  FragmentDefinitionNode
 } from 'graphql';
 import isEmptyObject from '../isEmptyObject';
 import { Request } from '../Interfaces';
@@ -23,13 +24,14 @@ import { createResolveType, fieldToFieldConfig } from '../stitching/schemaRecrea
 export type ObjectFieldTransformer = (
   typeName: string,
   fieldName: string,
-  field: GraphQLField<any, any>
+  field: GraphQLField<any, any>,
 ) => GraphQLFieldConfig<any, any> | { name: string; field: GraphQLFieldConfig<any, any> } | null | undefined;
 
 export type FieldNodeTransformer = (
   typeName: string,
   fieldName: string,
-  fieldNode: FieldNode
+  fieldNode: FieldNode,
+  fragments: Record<string, FragmentDefinitionNode>
 ) => SelectionNode | Array<SelectionNode>;
 
 type FieldMapping = {
@@ -41,15 +43,18 @@ type FieldMapping = {
 export default class TransformObjectFields implements Transform {
   private objectFieldTransformer: ObjectFieldTransformer;
   private fieldNodeTransformer: FieldNodeTransformer;
+  private fragments: Record<string, FragmentDefinitionNode>;
   private schema: GraphQLSchema;
   private mapping: FieldMapping;
 
   constructor(
     objectFieldTransformer: ObjectFieldTransformer,
     fieldNodeTransformer?: FieldNodeTransformer,
+    fragments: Record<string, FragmentDefinitionNode> = {},
   ) {
     this.objectFieldTransformer = objectFieldTransformer;
     this.fieldNodeTransformer = fieldNodeTransformer;
+    this.fragments = fragments;
     this.mapping = {};
   }
 
@@ -69,7 +74,8 @@ export default class TransformObjectFields implements Transform {
     const document = this.transformDocument(
       originalRequest.document,
       this.mapping,
-      this.fieldNodeTransformer
+      this.fieldNodeTransformer,
+      this.fragments
     );
     return {
       ...originalRequest,
@@ -140,7 +146,8 @@ export default class TransformObjectFields implements Transform {
   private transformDocument(
     document: DocumentNode,
     mapping: FieldMapping,
-    fieldNodeTransformer?: FieldNodeTransformer
+    fieldNodeTransformer?: FieldNodeTransformer,
+    fragments: Record<string, FragmentDefinitionNode> = {},
   ): DocumentNode {
     const typeInfo = new TypeInfo(this.schema);
     const newDocument: DocumentNode = visit(
@@ -156,7 +163,7 @@ export default class TransformObjectFields implements Transform {
               if (selection.kind === Kind.FIELD) {
                 const newName = selection.name.value;
                 const transformedSelection = fieldNodeTransformer
-                  ? fieldNodeTransformer(parentTypeName, newName, selection)
+                  ? fieldNodeTransformer(parentTypeName, newName, selection, fragments)
                   : selection;
 
                 if (Array.isArray(transformedSelection)) {

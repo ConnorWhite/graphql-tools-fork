@@ -1,4 +1,11 @@
-import { GraphQLNamedType, GraphQLField, GraphQLSchema, FieldNode, SelectionNode } from 'graphql';
+import {
+  GraphQLNamedType,
+  GraphQLField,
+  GraphQLSchema,
+  FieldNode,
+  SelectionNode,
+  FragmentDefinitionNode
+} from 'graphql';
 import { Transform } from './transforms';
 import { createResolveType, fieldToFieldConfig } from '../stitching/schemaRecreation';
 import { Request, IFieldResolver } from '../Interfaces';
@@ -12,12 +19,14 @@ export default class TransformObjectField implements Transform {
     fieldName,
     resolverWrapper,
     fieldNodeTransformer,
+    fragments = {},
   }: {
     typeName: string;
     fieldName: string;
     resolverWrapper?: (originalResolver: IFieldResolver<any, any>) => IFieldResolver<any, any>;
     fieldNodeTransformer?:
-      (fieldNode: FieldNode) => SelectionNode | Array<SelectionNode>;
+      (fieldNode: FieldNode, fragments: Record<string, FragmentDefinitionNode>) => SelectionNode | Array<SelectionNode>;
+    fragments?: Record<string, FragmentDefinitionNode>;
   }) {
     const resolveType = createResolveType((name: string, type: GraphQLNamedType): GraphQLNamedType => type);
     this.transformer = new TransformObjectFields(
@@ -31,7 +40,7 @@ export default class TransformObjectField implements Transform {
       },
       (t: string, f: string, fieldNode: FieldNode): SelectionNode | Array<SelectionNode> => {
         if (typeName === t && fieldName === f && fieldNodeTransformer) {
-          return fieldNodeTransformer(fieldNode);
+          return fieldNodeTransformer(fieldNode, fragments);
         }
         return fieldNode;
       }
