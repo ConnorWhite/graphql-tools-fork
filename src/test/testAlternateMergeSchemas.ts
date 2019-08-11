@@ -653,7 +653,7 @@ describe('wrap object field example', () => {
             id: extractField(originalResolver, 'id')(parent, args, context, info),
             name: extractField(originalResolver, 'name')(parent, args, context, info),
           }),
-        fieldNodeTransformer: (fieldNode: FieldNode) => {
+        fieldNodeTransformer: (fieldNode) => {
           return [...fieldNode.selectionSet.selections];
         },
       }),
@@ -667,10 +667,13 @@ describe('wrap object field example', () => {
         query($pid: ID!) {
           propertyById(id: $pid) {
             test: wrap {
-              one: id
-              two: name
+              ...W
             }
           }
+        }
+        fragment W on Wrap {
+          one: id
+          two: name
         }
     `,
       {},

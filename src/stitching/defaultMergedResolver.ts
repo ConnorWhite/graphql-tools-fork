@@ -1,8 +1,9 @@
-import { GraphQLFieldResolver, defaultFieldResolver, FieldNode, Kind } from 'graphql';
+import { GraphQLFieldResolver, defaultFieldResolver, FieldNode } from 'graphql';
 import { getErrorsFromParent } from './errors';
 import { handleResult } from './checkResultAndHandleErrors';
 import { getResponseKeyFromInfo } from './getResponseKeyFromInfo';
 import { IFieldResolver } from '../Interfaces';
+import { collectFields } from '../transforms';
 
 // Resolver that knows how to:
 // a) handle aliases for proxied schemas
@@ -44,11 +45,9 @@ export function extractField(
     const newFieldNodes: Array<FieldNode> = [];
 
     info.fieldNodes.forEach(fieldNode => {
-      fieldNode.selectionSet.selections.forEach(selection => {
-        if (selection.kind === Kind.FIELD) {
-          if (selection.name.value === fieldName) {
-            newFieldNodes.push(selection);
-          }
+      collectFields(fieldNode.selectionSet, info.fragments).forEach(fieldNode => {
+        if (fieldNode.name.value === fieldName) {
+          newFieldNodes.push(fieldNode);
         }
       });
     });

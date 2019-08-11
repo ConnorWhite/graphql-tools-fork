@@ -4,6 +4,8 @@ export { Transform };
 export { default as filterSchema } from './filterSchema';
 export { default as transformSchema } from './transformSchema';
 
+export { default as collectFields } from './collectFields';
+
 export { default as AddEnumAndScalarResolvers } from './AddEnumAndScalarResolvers';
 export { default as AddDefaultResolver } from './AddDefaultResolver';
 

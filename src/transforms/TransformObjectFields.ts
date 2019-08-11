@@ -20,6 +20,7 @@ import { Request } from '../Interfaces';
 import { Transform } from './transforms';
 import { visitSchema, VisitSchemaKind } from './visitSchema';
 import { createResolveType, fieldToFieldConfig } from '../stitching/schemaRecreation';
+import collectFields from './collectFields';
 
 export type ObjectFieldTransformer = (
   typeName: string,
@@ -43,18 +44,15 @@ type FieldMapping = {
 export default class TransformObjectFields implements Transform {
   private objectFieldTransformer: ObjectFieldTransformer;
   private fieldNodeTransformer: FieldNodeTransformer;
-  private fragments: Record<string, FragmentDefinitionNode>;
   private schema: GraphQLSchema;
   private mapping: FieldMapping;
 
   constructor(
     objectFieldTransformer: ObjectFieldTransformer,
     fieldNodeTransformer?: FieldNodeTransformer,
-    fragments: Record<string, FragmentDefinitionNode> = {},
   ) {
     this.objectFieldTransformer = objectFieldTransformer;
     this.fieldNodeTransformer = fieldNodeTransformer;
-    this.fragments = fragments;
     this.mapping = {};
   }
 
@@ -71,11 +69,17 @@ export default class TransformObjectFields implements Transform {
   }
 
   public transformRequest(originalRequest: Request): Request {
+    const fragments = {};
+    originalRequest.document.definitions.filter(
+      def => def.kind === Kind.FRAGMENT_DEFINITION
+    ).forEach(def => {
+      fragments[(def as FragmentDefinitionNode).name.value] = def
+    });
     const document = this.transformDocument(
       originalRequest.document,
       this.mapping,
       this.fieldNodeTransformer,
-      this.fragments
+      fragments
     );
     return {
       ...originalRequest,
@@ -162,9 +166,18 @@ export default class TransformObjectFields implements Transform {
             node.selections.forEach(selection => {
               if (selection.kind === Kind.FIELD) {
                 const newName = selection.name.value;
+
+                const fieldNode = {
+                  ...selection,
+                  selectionSet: selection.selectionSet ? {
+                    kind: Kind.SELECTION_SET,
+                    selections: collectFields(selection.selectionSet, fragments),
+                  } : selection.selectionSet,
+                };
+
                 const transformedSelection = fieldNodeTransformer
-                  ? fieldNodeTransformer(parentTypeName, newName, selection, fragments)
-                  : selection;
+                  ? fieldNodeTransformer(parentTypeName, newName, fieldNode, fragments)
+                  : fieldNode;
 
                 if (Array.isArray(transformedSelection)) {
                   newSelections = newSelections.concat(transformedSelection);

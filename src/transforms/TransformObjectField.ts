@@ -1,6 +1,4 @@
 import {
-  GraphQLNamedType,
-  GraphQLField,
   GraphQLSchema,
   FieldNode,
   SelectionNode,
@@ -28,9 +26,9 @@ export default class TransformObjectField implements Transform {
       (fieldNode: FieldNode, fragments: Record<string, FragmentDefinitionNode>) => SelectionNode | Array<SelectionNode>;
     fragments?: Record<string, FragmentDefinitionNode>;
   }) {
-    const resolveType = createResolveType((name: string, type: GraphQLNamedType): GraphQLNamedType => type);
+    const resolveType = createResolveType((name, type) => type);
     this.transformer = new TransformObjectFields(
-      (t: string, f: string, field: GraphQLField<any, any>) => {
+      (t, f, field) => {
         const fieldConfig = fieldToFieldConfig(field, resolveType, true);
         if (typeName === t && fieldName === f && resolverWrapper) {
           const originalResolver = fieldConfig.resolve;
@@ -38,7 +36,7 @@ export default class TransformObjectField implements Transform {
         }
         return fieldConfig;
       },
-      (t: string, f: string, fieldNode: FieldNode): SelectionNode | Array<SelectionNode> => {
+      (t, f, fieldNode, fragments): SelectionNode | Array<SelectionNode> => {
         if (typeName === t && fieldName === f && fieldNodeTransformer) {
           return fieldNodeTransformer(fieldNode, fragments);
         }
