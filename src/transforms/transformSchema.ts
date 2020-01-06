@@ -34,7 +34,7 @@ export function wrapSchema(
 
   addResolveFunctionsToSchema({
     schema,
-    resolvers: generateProxyingResolvers(subschema, transformArgs),
+    resolvers: generateProxyingResolvers(subschema, undefined, transformArgs),
     resolverValidationOptions: {
       allowResolversNotInSchema: true,
     },
