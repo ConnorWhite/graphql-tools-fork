@@ -1,5 +1,4 @@
 import { Observable } from 'apollo-link';
-import { $$asyncIterator } from 'iterall';
 type Callback = (value?: any) => any;
 
 export function observableToAsyncIterable<T>(observable: Observable<T>): AsyncIterator<T> {
@@ -69,9 +68,6 @@ export function observableToAsyncIterable<T>(observable: Observable<T>): AsyncIt
     throw(error) {
       emptyQueue();
       return Promise.reject(error);
-    },
-    [$$asyncIterator]() {
-      return this;
-    },
+    }
   };
 }

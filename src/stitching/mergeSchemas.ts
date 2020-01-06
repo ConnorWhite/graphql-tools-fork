@@ -28,7 +28,6 @@ import {
   addResolveFunctionsToSchema,
 } from '../makeExecutableSchema';
 import delegateToSchema from './delegateToSchema';
-import delegateToRemoteSchema from './delegateToRemoteSchema';
 import typeFromAST from './typeFromAST';
 import {
   Transform,
@@ -188,10 +187,6 @@ export default function mergeSchemas({
         onTypeConflictToCandidateSelector(onTypeConflict) :
         (cands: Array<MergeTypeCandidate>) => cands[cands.length - 1];
       typeMap[typeName] = candidateSelector(typeCandidates[typeName]).type;
-    }
-    types[typeName] = recreateType(type, resolveType, false);
-    if (typeResolvers !== undefined) {
-      generatedResolvers[typeName] = typeResolvers;
     }
   });
 

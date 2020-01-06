@@ -121,8 +121,6 @@ export interface IDelegateToSchemaOptions<TContext = { [key: string]: any }> {
   rootValue?: Record<string, any>;
   transforms?: Array<Transform>;
   skipValidation?: boolean;
-  executor?: Delegator;
-  subscriber?: Delegator;
 }
 
 export type Delegator = ({ document, context, variables }: {

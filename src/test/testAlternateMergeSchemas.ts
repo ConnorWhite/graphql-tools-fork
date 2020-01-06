@@ -44,36 +44,6 @@ import { SubschemaConfig, MergedTypeConfig } from '../Interfaces';
 import isSpecifiedScalarType from '../utils/isSpecifiedScalarType';
 import { wrapFieldNode, renameFieldNode, hoistFieldNodes } from '../utils/fieldNodes';
 
-function renameFieldNode(fieldNode: FieldNode, name: string): FieldNode {
-  return {
-    ...fieldNode,
-    name: {
-      ...fieldNode.name,
-      value: name,
-    }
-  };
-}
-
-function wrapFieldNode(fieldNode: FieldNode, path: Array<string>): FieldNode {
-  let newFieldNode = fieldNode;
-  path.forEach(fieldName => {
-    newFieldNode = {
-      kind: Kind.FIELD,
-      name: {
-        kind: Kind.NAME,
-        value: fieldName,
-      },
-      selectionSet: {
-        kind: Kind.SELECTION_SET,
-        selections: [
-          fieldNode,
-        ]
-      }
-    };
-  });
-  return newFieldNode;
-}
-
 let linkSchema = `
   """
   A new type linking the Property type.

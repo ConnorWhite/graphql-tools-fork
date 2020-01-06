@@ -2,11 +2,9 @@ import makeRemoteExecutableSchema, { createResolver as defaultCreateRemoteResolv
 import introspectSchema from './introspectSchema';
 import mergeSchemas from './mergeSchemas';
 import delegateToSchema from './delegateToSchema';
-import delegateToRemoteSchema from './delegateToRemoteSchema';
 import defaultMergedResolver from './defaultMergedResolver';
 import { createMergedResolver } from './createMergedResolver';
 import { dehoistResult, unwrapResult } from './proxiedResult';
-
 
 export {
   makeRemoteExecutableSchema,
