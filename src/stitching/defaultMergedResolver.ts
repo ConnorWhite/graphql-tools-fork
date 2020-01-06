@@ -1,27 +1,34 @@
-import { GraphQLFieldResolver, defaultFieldResolver } from 'graphql';
-import { getErrorsFromParent } from './errors';
+import { defaultFieldResolver } from 'graphql';
+import { getErrors, getSubschemas } from './proxiedResult';
 import { handleResult } from './checkResultAndHandleErrors';
 import { getResponseKeyFromInfo } from './getResponseKeyFromInfo';
+import { IGraphQLToolsResolveInfo } from '../Interfaces';
 
 // Resolver that knows how to:
 // a) handle aliases for proxied schemas
 // b) handle errors from proxied schemas
 // c) handle external to internal enum coversion
-const defaultMergedResolver: GraphQLFieldResolver<any, any> = (parent, args, context, info) => {
+export default function defaultMergedResolver(
+  parent: Record<string, any>,
+  args: Record<string, any>,
+  context: Record<string, any>,
+  info: IGraphQLToolsResolveInfo,
+) {
   if (!parent) {
     return null;
   }
 
   const responseKey = getResponseKeyFromInfo(info);
-  const errors = getErrorsFromParent(parent, responseKey);
+  const errors = getErrors(parent, responseKey);
 
   // check to see if parent is not a proxied result, i.e. if parent resolver was manually overwritten
   // See https://github.com/apollographql/graphql-tools/issues/967
-  if (!Array.isArray(errors)) {
+  if (!errors) {
     return defaultFieldResolver(parent, args, context, info);
   }
 
-  return handleResult(info, parent[responseKey], errors);
-};
+  const result = parent[responseKey];
+  const subschemas = getSubschemas(parent);
 
-export default defaultMergedResolver;
+  return handleResult(result, errors, subschemas, context, info);
+}

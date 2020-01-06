@@ -1,17 +1,7 @@
 import {
   GraphQLError,
-  ASTNode
+  ASTNode,
 } from 'graphql';
-
-export let ERROR_SYMBOL: any;
-if (
-  (typeof global !== 'undefined' && 'Symbol' in global) ||
-  (typeof window !== 'undefined' && 'Symbol' in window)
-) {
-  ERROR_SYMBOL = Symbol('subSchemaErrors');
-} else {
-  ERROR_SYMBOL = '@@__subSchemaErrors';
-}
 
 export function relocatedError(
   originalError: Error | GraphQLError,
@@ -40,67 +30,30 @@ export function relocatedError(
   );
 }
 
-export function annotateWithChildrenErrors(object: any, childrenErrors: ReadonlyArray<GraphQLError>): any {
-  if (!Array.isArray(childrenErrors)) {
-    object[ERROR_SYMBOL] = [];
-    return object;
-  }
-
-  if (Array.isArray(object)) {
-    const byIndex = {};
-
-    childrenErrors.forEach(error => {
-      if (!error.path) {
-        return;
-      }
-      const index = error.path[1];
-      const current = byIndex[index] || [];
-      current.push(
-        relocatedError(
-          error,
-          error.nodes,
-          error.path ? error.path.slice(1) : undefined
-        )
-      );
-      byIndex[index] = current;
-    });
-
-    object.forEach((item, index) => annotateWithChildrenErrors(item, byIndex[index]));
-
-    return object;
-  }
-
-  object[ERROR_SYMBOL] = childrenErrors.map(error => {
-    const newError = relocatedError(
-      error,
-      error.nodes,
-      error.path ? error.path.slice(1) : undefined
-    );
-    return newError;
-  });
-
-  return object;
+export function slicedError(originalError: GraphQLError) {
+  return relocatedError(
+    originalError,
+    originalError.nodes,
+    originalError.path ? originalError.path.slice(1) : undefined
+  );
 }
 
-export function getErrorsFromParent(
-  object: any,
-  fieldName: string
-): Array<GraphQLError> {
-  const errors = object && object[ERROR_SYMBOL];
 
-  if (!Array.isArray(errors)) {
-    return null;
-  }
-
-  const childrenErrors = [];
-
-  for (const error of errors) {
-    if (!error.path || error.path[0] === fieldName) {
-      childrenErrors.push(error);
+export function getErrorsByPathSegment(errors: ReadonlyArray<GraphQLError>): Record<string, Array<GraphQLError>> {
+  const record = Object.create(null);
+  errors.forEach(error => {
+    if (!error.path || error.path.length < 2) {
+      return;
     }
-  }
 
-  return childrenErrors;
+    const pathSegment = error.path[1];
+
+    const current = record[pathSegment] || [];
+    current.push(slicedError(error));
+    record[pathSegment] = current;
+  });
+
+  return record;
 }
 
 class CombinedError extends Error {

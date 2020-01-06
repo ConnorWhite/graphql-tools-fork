@@ -1,6 +1,8 @@
 export * from './Interfaces';
+export * from './links';
 export * from './makeExecutableSchema';
 export * from './mock';
+export * from './scalars';
 export * from './stitching';
 export * from './transforms';
-export { SchemaDirectiveVisitor } from './schemaVisitor';
+export * from './utils';

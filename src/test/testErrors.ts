@@ -1,13 +1,13 @@
-import { assert } from 'chai';
-import { GraphQLResolveInfo, GraphQLError } from 'graphql';
-import {
-  relocatedError,
-  getErrorsFromParent,
-  ERROR_SYMBOL
-} from '../stitching/errors';
+import { expect, assert } from 'chai';
+import { GraphQLError, graphql } from 'graphql';
+import { relocatedError } from '../stitching/errors';
+import { getErrors, ERROR_SYMBOL } from '../stitching/proxiedResult';
 import { checkResultAndHandleErrors } from '../stitching/checkResultAndHandleErrors';
 
 import 'mocha';
+import { makeExecutableSchema } from '../makeExecutableSchema';
+import { mergeSchemas } from '../stitching';
+import { IGraphQLToolsResolveInfo } from '../Interfaces';
 
 class ErrorWithExtensions extends GraphQLError {
   constructor(message: string, code: string) {
@@ -32,7 +32,7 @@ describe('Errors', () => {
     });
   });
 
-  describe('getErrorsFromParent', () => {
+  describe('getErrors', () => {
     it('should return all errors including if path is not defined', () => {
       const mockErrors = {
         responseKey: '',
@@ -43,7 +43,7 @@ describe('Errors', () => {
         ]
       };
 
-      assert.deepEqual(getErrorsFromParent(mockErrors, 'responseKey'),
+      assert.deepEqual(getErrors(mockErrors, 'responseKey'),
         [mockErrors[ERROR_SYMBOL][0]]
       );
     });
@@ -55,7 +55,7 @@ describe('Errors', () => {
         errors: [new GraphQLError('Test error')]
       };
       try {
-        checkResultAndHandleErrors(result, {} as GraphQLResolveInfo, 'responseKey');
+        checkResultAndHandleErrors(result, {}, {} as IGraphQLToolsResolveInfo, 'responseKey');
       } catch (e) {
         assert.equal(e.message, 'Test error');
         assert.isUndefined(e.originalError.errors);
@@ -67,7 +67,7 @@ describe('Errors', () => {
         errors: [new ErrorWithExtensions('Test error', 'UNAUTHENTICATED')]
       };
       try {
-        checkResultAndHandleErrors(result, {} as GraphQLResolveInfo, 'responseKey');
+        checkResultAndHandleErrors(result, {}, {} as IGraphQLToolsResolveInfo, 'responseKey');
       } catch (e) {
         assert.equal(e.message, 'Test error');
         assert.equal(e.extensions && e.extensions.code, 'UNAUTHENTICATED');
@@ -83,7 +83,7 @@ describe('Errors', () => {
         ]
       };
       try {
-        checkResultAndHandleErrors(result, {} as GraphQLResolveInfo, 'responseKey');
+        checkResultAndHandleErrors(result, {}, {} as IGraphQLToolsResolveInfo, 'responseKey');
       } catch (e) {
         assert.equal(e.message, 'Error1\nError2');
         assert.isNotEmpty(e.originalError);
@@ -93,6 +93,204 @@ describe('Errors', () => {
           assert.deepEqual(e.originalError.errors[i], error);
         });
       }
+    });
+  });
+});
+
+describe('passes along errors for missing fields on list', () => {
+  it('if non-null', async () => {
+    const typeDefs = `
+      type Query {
+        getOuter: Outer
+      }
+      type Outer {
+        innerList: [Inner!]!
+      }
+      type Inner {
+        mandatoryField: String!
+      }
+    `;
+
+    const schema = makeExecutableSchema({
+      typeDefs,
+      resolvers: {
+        Query: {
+          getOuter: () => ({
+            innerList: [{ mandatoryField: 'test'}, {}]
+          })
+        },
+      }
+    });
+
+    const mergedSchema = mergeSchemas({
+      schemas: [schema]
+    });
+    const result = await graphql(mergedSchema, `{ getOuter { innerList { mandatoryField } } }`);
+    expect(result).to.deep.equal({
+      data: {
+        getOuter: null,
+      },
+      errors: [{
+        locations: [{
+          column: 26,
+          line: 1,
+        }],
+        message: 'Cannot return null for non-nullable field Inner.mandatoryField.',
+        path: [
+          'getOuter',
+          'innerList',
+          1,
+          'mandatoryField',
+        ],
+      }]
+    });
+  });
+
+  it('even if nullable', async () => {
+    const typeDefs = `
+      type Query {
+        getOuter: Outer
+      }
+      type Outer {
+        innerList: [Inner]!
+      }
+      type Inner {
+        mandatoryField: String!
+      }
+    `;
+
+    const schema = makeExecutableSchema({
+      typeDefs,
+      resolvers: {
+        Query: {
+          getOuter: () => ({
+            innerList: [{ mandatoryField: 'test' }, {}]
+          })
+        },
+      }
+    });
+
+    const mergedSchema = mergeSchemas({
+      schemas: [schema]
+    });
+    const result = await graphql(mergedSchema, `{ getOuter { innerList { mandatoryField } } }`);
+    expect(result).to.deep.equal({
+      data: {
+        getOuter: {
+          innerList: [{ mandatoryField: 'test'}, null],
+        },
+      },
+      errors: [{
+        locations: [{
+          column: 26,
+          line: 1,
+        }],
+        message: 'Cannot return null for non-nullable field Inner.mandatoryField.',
+        path: [
+          'getOuter',
+          'innerList',
+          1,
+          'mandatoryField',
+        ],
+      }]
+    });
+  });
+});
+
+describe('passes along errors when list field errors', () => {
+  it('if non-null', async () => {
+    const typeDefs = `
+      type Query {
+        getOuter: Outer
+      }
+      type Outer {
+        innerList: [Inner!]!
+      }
+      type Inner {
+        mandatoryField: String!
+      }
+    `;
+
+    const schema = makeExecutableSchema({
+      typeDefs,
+      resolvers: {
+        Query: {
+          getOuter: () => ({
+            innerList: [{ mandatoryField: 'test' }, new Error('test')],
+          }),
+        },
+      }
+    });
+
+    const mergedSchema = mergeSchemas({
+      schemas: [schema]
+    });
+    const result = await graphql(mergedSchema, `{ getOuter { innerList { mandatoryField } } }`);
+    expect(result).to.deep.equal({
+      data: {
+        getOuter: null,
+      },
+      errors: [{
+        locations: [{
+          column: 14,
+          line: 1,
+        }],
+        message: 'test',
+        path: [
+          'getOuter',
+          'innerList',
+          1,
+        ],
+      }]
+    });
+  });
+
+  it('even if nullable', async () => {
+    const typeDefs = `
+      type Query {
+        getOuter: Outer
+      }
+      type Outer {
+        innerList: [Inner]!
+      }
+      type Inner {
+        mandatoryField: String!
+      }
+    `;
+
+    const schema = makeExecutableSchema({
+      typeDefs,
+      resolvers: {
+        Query: {
+          getOuter: () => ({
+            innerList: [{ mandatoryField: 'test' }, new Error('test')],
+          }),
+        },
+      }
+    });
+
+    const mergedSchema = mergeSchemas({
+      schemas: [schema]
+    });
+    const result = await graphql(mergedSchema, `{ getOuter { innerList { mandatoryField } } }`);
+    expect(result).to.deep.equal({
+      data: {
+        getOuter: {
+          innerList: [{ mandatoryField: 'test'}, null],
+        },
+      },
+      errors: [{
+        locations: [{
+          column: 14,
+          line: 1,
+        }],
+        message: 'test',
+        path: [
+          'getOuter',
+          'innerList',
+          1,
+        ],
+      }]
     });
   });
 });

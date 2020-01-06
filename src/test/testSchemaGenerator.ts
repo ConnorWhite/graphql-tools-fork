@@ -12,6 +12,9 @@ import {
   ExecutionResult,
   GraphQLError,
   GraphQLEnumType,
+  execute,
+  VariableDefinitionNode,
+  DocumentNode,
 } from 'graphql';
 // import { printSchema } from 'graphql';
 const { GraphQLJSON } = require('graphql-type-json');
@@ -33,9 +36,11 @@ import {
   IExecutableSchemaDefinition,
   IDirectiveResolvers,
   NextResolverFn,
+  VisitSchemaKind,
 } from '../Interfaces';
 import 'mocha';
-import { VisitSchemaKind, visitSchema } from '../transforms/visitSchema';
+import { visitSchema } from '../utils/visitSchema';
+import { addResolveFunctionsToSchema } from '../generate';
 
 interface Bird {
   name: string;
@@ -1171,6 +1176,101 @@ describe('generating schema from shorthand', () => {
         assert.equal(result.data['red'], resolveFunctions.Color.RED);
         assert.equal(result.data['blue'], resolveFunctions.Color.BLUE);
         assert.equal(result.data['num'], resolveFunctions.NumericEnum.TEST);
+        assert.equal(result.errors, undefined);
+      });
+    });
+  });
+
+  describe('default value support', () => {
+    it('supports default field values', () => {
+      const shorthand = `
+        enum Color {
+          RED
+        }
+
+        schema {
+          query: Query
+        }
+
+        type Query {
+          colorTest(color: Color = RED): String
+        }
+      `;
+
+      const testQuery = `{
+        red: colorTest
+       }`;
+
+      const resolveFunctions = {
+        Color: {
+          RED: '#EA3232',
+        },
+        Query: {
+          colorTest(root: any, args: { color: string }) {
+            return args.color;
+          },
+        },
+      };
+
+      const jsSchema = makeExecutableSchema({
+        typeDefs: shorthand,
+        resolvers: resolveFunctions,
+      });
+
+      const resultPromise = graphql(jsSchema, testQuery);
+      return resultPromise.then(result => {
+        assert.equal(result.data['red'], resolveFunctions.Color.RED);
+        assert.equal(result.errors, undefined);
+      });
+    });
+
+    it('supports changing default field values', () => {
+      const shorthand = `
+        enum Color {
+          RED
+        }
+
+        schema {
+          query: Query
+        }
+
+        type Query {
+          colorTest(color: Color = RED): String
+        }
+      `;
+
+      const testQuery = `{
+        red: colorTest
+       }`;
+
+      const resolveFunctions = {
+        Color: {
+          RED: '#EA3232',
+        },
+        Query: {
+          colorTest(root: any, args: { color: string }) {
+            return args.color;
+          },
+        },
+      };
+
+      const jsSchema = makeExecutableSchema({
+        typeDefs: shorthand,
+        resolvers: resolveFunctions,
+      });
+
+      addResolveFunctionsToSchema({
+        schema: jsSchema,
+        resolvers: {
+          Color: {
+            RED: 'override',
+          },
+        }
+      });
+
+      const resultPromise = graphql(jsSchema, testQuery);
+      return resultPromise.then(result => {
+        assert.equal(result.data['red'], 'override');
         assert.equal(result.errors, undefined);
       });
     });
@@ -2587,32 +2687,16 @@ describe('can specify lexical parser options', () => {
     expect(schema.astNode.loc).to.equal(undefined);
   });
 
-  xit("can specify 'experimentalFragmentVariables' option", () => {
+  it("can specify 'experimentalFragmentVariables' option", () => {
     const typeDefs = `
-      type Hello {
-        world(phrase: String): String
-      }
-
-      fragment hello($phrase: String = "world") on Hello {
-        world(phrase: $phrase)
-      }
-
-      type RootQuery {
-        hello: Hello
-      }
-
-      schema {
-        query: RootQuery
+      type Query {
+        version: Int
       }
     `;
 
     const resolvers = {
-      RootQuery: {
-        hello() {
-          return {
-            world: (phrase: string) => `hello ${phrase}`,
-          };
-        },
+      Query: {
+        version: () => 1,
       },
     };
 
@@ -2625,6 +2709,69 @@ describe('can specify lexical parser options', () => {
         },
       });
     }).to.not.throw();
+  });
+
+  // Note that the experimentalFragmentVariables option requires a client side transform
+  // to hoist the parsed variables into queries, see https://github.com/graphql/graphql-js/pull/1141
+  // and so this really has nothing to do with schema creation or execution.
+  it("can use 'experimentalFragmentVariables' option", async () => {
+  const typeDefs = `
+      type Query {
+        hello(phrase: String): String
+      }
+    `;
+
+    const resolvers = {
+      Query: {
+        hello: (root: any, args: any) => {
+          return `hello ${args.phrase}`;
+        }
+      },
+    };
+
+    const jsSchema = makeExecutableSchema({
+      typeDefs,
+      resolvers,
+    });
+
+    const query = `
+      fragment Hello($phrase: String = "world") on Query {
+        hello(phrase: $phrase)
+      }
+      query {
+        ...Hello
+      }
+    `;
+
+    const parsedQuery = parse(query, { experimentalFragmentVariables: true });
+
+    const hoist = (document: DocumentNode) => {
+      let variableDefs: Array<VariableDefinitionNode> = [];
+
+      document.definitions.forEach(def => {
+        if (def.kind === Kind.FRAGMENT_DEFINITION) {
+          variableDefs = variableDefs.concat(def.variableDefinitions);
+        }
+      });
+
+      return {
+        kind: Kind.DOCUMENT,
+        definitions: parsedQuery.definitions.map(def => {
+          return {
+            ...def,
+            variableDefinitions: variableDefs,
+          };
+        }),
+      };
+    };
+
+    const hoistedQuery = hoist(parsedQuery);
+
+    const result = await execute(jsSchema, hoistedQuery);
+    expect(result.data).to.deep.equal({ hello: 'hello world', });
+
+    const result2 = await execute(jsSchema, hoistedQuery, null, null, { phrase: 'world again!' });
+    expect(result2.data).to.deep.equal({ hello: 'hello world again!', });
   });
 });
 

@@ -1,13 +1,9 @@
 import { assert } from 'chai';
-import {
-  makeExecutableSchema,
-} from '../makeExecutableSchema';
-import {
-  VisitableSchemaType,
-  SchemaDirectiveVisitor,
-  SchemaVisitor,
-  visitSchema,
-} from '../schemaVisitor';
+import { makeExecutableSchema } from '../makeExecutableSchema';
+import { VisitableSchemaType } from '../Interfaces';
+import { SchemaDirectiveVisitor } from '../utils/SchemaDirectiveVisitor';
+import { SchemaVisitor } from '../utils/SchemaVisitor';
+import { visitSchema } from '../utils/visitSchema';
 import {
   ExecutionResult,
   GraphQLArgument,
@@ -28,6 +24,7 @@ import {
   GraphQLList,
   GraphQLUnionType,
   GraphQLInt,
+  GraphQLOutputType,
 } from 'graphql';
 
 import formatDate = require('dateformat');
@@ -206,24 +203,19 @@ describe('@directives', () => {
   it('can be implemented with SchemaDirectiveVisitor', () => {
     const visited: Set<GraphQLObjectType> = new Set;
     const schema = makeExecutableSchema({ typeDefs });
-    let visitCount = 0;
 
     SchemaDirectiveVisitor.visitSchemaDirectives(schema, {
       // The directive subclass can be defined anonymously inline!
       queryTypeDirective: class extends SchemaDirectiveVisitor {
         public static description = 'A @directive for query object types';
         public visitObject(object: GraphQLObjectType) {
+          assert.strictEqual(object, schema.getQueryType());
           visited.add(object);
-          visitCount++;
         }
       },
     });
 
     assert.strictEqual(visited.size, 1);
-    assert.strictEqual(visitCount, 1);
-    visited.forEach(object => {
-      assert.strictEqual(object, schema.getType('Query'));
-    });
   });
 
   it('can visit the schema itself', () => {
@@ -595,10 +587,10 @@ describe('@directives', () => {
         const { resolve = defaultFieldResolver } = field;
         const { defaultFormat } = this.args;
 
-        field.args.push({
+        field.args.push(Object.create({
           name: 'format',
-          type: GraphQLString
-        });
+          type: GraphQLString,
+        }));
 
         field.type = GraphQLString;
         field.resolve = async function (source, { format, ...args }, context, info) {
@@ -1018,20 +1010,20 @@ describe('@directives', () => {
         uniqueID: class extends SchemaDirectiveVisitor {
           public visitObject(type: GraphQLObjectType) {
             const { name, from } = this.args;
-            type.getFields()[name] = {
+            type.getFields()[name] = Object.create({
               name: name,
               type: GraphQLID,
               description: 'Unique ID',
               args: [],
-              resolve(object) {
+              resolve(object: any) {
                 const hash = require('crypto').createHash('sha1');
                 hash.update(type.name);
                 from.forEach((fieldName: string) => {
                   hash.update(String(object[fieldName]));
                 });
                 return hash.digest('hex');
-              }
-            };
+              },
+            });
           }
         }
       },
@@ -1085,14 +1077,12 @@ describe('@directives', () => {
   });
 
   it('automatically updates references to changed types', () => {
-    let HumanType: GraphQLObjectType = null;
-
     const schema = makeExecutableSchema({
       typeDefs,
       schemaDirectives: {
         objectTypeDirective: class extends SchemaDirectiveVisitor {
           public visitObject(object: GraphQLObjectType) {
-            return HumanType = Object.create(object, {
+            return Object.create(object, {
               name: { value: 'Human' }
             });
           }
@@ -1103,19 +1093,19 @@ describe('@directives', () => {
     const Query = schema.getType('Query') as GraphQLObjectType;
     const peopleType = Query.getFields().people.type;
     if (peopleType instanceof GraphQLList) {
-      assert.strictEqual(peopleType.ofType, HumanType);
+      assert.strictEqual(peopleType.ofType, schema.getType('Human'));
     } else {
       throw new Error('Query.people not a GraphQLList type');
     }
 
     const Mutation = schema.getType('Mutation') as GraphQLObjectType;
     const addPersonResultType = Mutation.getFields().addPerson.type;
-    assert.strictEqual(addPersonResultType, HumanType);
+    assert.strictEqual(addPersonResultType, schema.getType('Human') as GraphQLOutputType);
 
     const WhateverUnion = schema.getType('WhateverUnion') as GraphQLUnionType;
     const found = WhateverUnion.getTypes().some(type => {
       if (type.name === 'Human') {
-        assert.strictEqual(type, HumanType);
+        assert.strictEqual(type, schema.getType('Human'));
         return true;
       }
     });
@@ -1213,7 +1203,7 @@ describe('@directives', () => {
 
   it('does not enforce query directive locations (issue #680)', () => {
     const visited = new Set<GraphQLObjectType>();
-    const schema = makeExecutableSchema({
+    makeExecutableSchema({
       typeDefs: `
       directive @hasScope(scope: [String]) on QUERY | FIELD | OBJECT
 
@@ -1232,9 +1222,6 @@ describe('@directives', () => {
     });
 
     assert.strictEqual(visited.size, 1);
-    visited.forEach(object => {
-      assert.strictEqual(schema.getType('Query'), object);
-    });
   });
 
   it('allows multiple directives when first replaces type (issue #851)', () => {

@@ -6,11 +6,10 @@ import {
 import {
   IResolvers,
   Operation,
-  SchemaExecutionConfig,
-  isRemoteSchemaExecutionConfig,
+  SubschemaConfig,
 } from '../Interfaces';
 import delegateToSchema from './delegateToSchema';
-import { Transform } from '../transforms/index';
+import { makeMergedType } from './makeMergedType';
 
 export type Mapping = {
   [typeName: string]: {
@@ -22,10 +21,17 @@ export type Mapping = {
 };
 
 export function generateProxyingResolvers(
-  targetSchema: GraphQLSchema | SchemaExecutionConfig,
-  transforms: Array<Transform>,
-  mapping: Mapping,
+  subschemaConfig: SubschemaConfig,
+  createProxyingResolver: (
+    schema: GraphQLSchema | SubschemaConfig,
+    operation: Operation,
+    fieldName: string,
+  ) => GraphQLFieldResolver<any, any> = defaultCreateProxyingResolver,
 ): IResolvers {
+  const targetSchema = subschemaConfig.schema;
+
+  const mapping = generateSimpleMapping(targetSchema);
+
   const result = {};
   Object.keys(mapping).forEach(name => {
     result[name] = {};
@@ -36,10 +42,9 @@ export function generateProxyingResolvers(
         to.operation === 'subscription' ? 'subscribe' : 'resolve';
       result[name][from] = {
         [resolverType]: createProxyingResolver(
-          targetSchema,
+          subschemaConfig,
           to.operation,
           to.name,
-          transforms,
         ),
       };
     });
@@ -89,11 +94,10 @@ export function generateMappingFromObjectType(
   return result;
 }
 
-function createProxyingResolver(
-  schema: GraphQLSchema | SchemaExecutionConfig,
+function defaultCreateProxyingResolver(
+  subschemaConfig: SubschemaConfig,
   operation: Operation,
   fieldName: string,
-  transforms: Array<Transform>,
 ): GraphQLFieldResolver<any, any> {
   if (isRemoteSchemaExecutionConfig(schema)) {
     return (parent, args, context, info) => delegateToSchema({
@@ -108,12 +112,20 @@ function createProxyingResolver(
   }
 
   return (parent, args, context, info) => delegateToSchema({
-    schema: schema as GraphQLSchema,
+    schema: subschemaConfig,
     operation,
     fieldName,
-    args: {},
+    args,
     context,
     info,
-    transforms,
+  });
+}
+
+export function stripResolvers(schema: GraphQLSchema): void {
+  const typeMap = schema.getTypeMap();
+  Object.keys(typeMap).forEach(typeName => {
+    if (!typeName.startsWith('__')) {
+      makeMergedType(typeMap[typeName]);
+    }
   });
 }

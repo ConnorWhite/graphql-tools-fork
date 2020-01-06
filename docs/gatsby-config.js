@@ -1,9 +1,12 @@
+const themeOptions = require('gatsby-theme-apollo-docs/theme-options');
+
 module.exports = {
   pathPrefix: '/docs/graphql-tools-fork',
-  __experimentalThemes: [
+  plugins: [
     {
       resolve: 'gatsby-theme-apollo-docs',
       options: {
+        ...themeOptions,
         root: __dirname,
         subtitle: 'GraphQL Tools - Forked',
         description: 'A guide to using the forked GraphQL Tools',

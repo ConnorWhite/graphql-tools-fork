@@ -5,11 +5,11 @@ import {
   GraphQLObjectType,
   GraphQLScalarType,
   GraphQLUnionType,
+  GraphQLType,
 } from 'graphql';
-import { GraphQLSchemaWithTransforms } from '../Interfaces';
-import { visitSchema, VisitSchemaKind } from './visitSchema';
-import { fieldToFieldConfig, createResolveType } from '../stitching/schemaRecreation';
-import isEmptyObject from '../isEmptyObject';
+import { GraphQLSchemaWithTransforms, VisitSchemaKind } from '../Interfaces';
+import { visitSchema } from '../utils/visitSchema';
+import { cloneSchema } from '../utils/clone';
 
 export type RootFieldFilter = (
   operation: 'Query' | 'Mutation' | 'Subscription',
@@ -29,40 +29,38 @@ export default function filterSchema({
 }: {
   schema: GraphQLSchemaWithTransforms;
   rootFieldFilter?: RootFieldFilter;
-  typeFilter?: (typeName: string) => boolean;
+  typeFilter?: (typeName: string, type: GraphQLType) => boolean;
   fieldFilter?: (typeName: string, fieldName: string) => boolean;
 }): GraphQLSchemaWithTransforms {
-  const filteredSchema: GraphQLSchemaWithTransforms = visitSchema(schema, {
+  const filteredSchema: GraphQLSchemaWithTransforms = visitSchema(cloneSchema(schema), {
     [VisitSchemaKind.QUERY]: (type: GraphQLObjectType) => {
-      return rootFieldFilter ? filterRootFields(type, 'Query', rootFieldFilter) : undefined;
+      return filterRootFields(type, 'Query', rootFieldFilter);
     },
     [VisitSchemaKind.MUTATION]: (type: GraphQLObjectType) => {
-      return rootFieldFilter ? filterRootFields(type, 'Mutation', rootFieldFilter) : undefined;
+      return filterRootFields(type, 'Mutation', rootFieldFilter);
     },
     [VisitSchemaKind.SUBSCRIPTION]: (type: GraphQLObjectType) => {
-      return rootFieldFilter ? filterRootFields(type, 'Subscription', rootFieldFilter) : undefined;
+      return filterRootFields(type, 'Subscription', rootFieldFilter);
     },
     [VisitSchemaKind.OBJECT_TYPE]: (type: GraphQLObjectType) => {
-      return (!typeFilter || typeFilter(type.name)) ?
-        (filterObjectFields ?
-          filterObjectFields(type, fieldFilter) :
-          undefined) :
+      return (typeFilter(type.name, type)) ?
+        filterObjectFields(type, fieldFilter) :
         null;
     },
     [VisitSchemaKind.INTERFACE_TYPE]: (type: GraphQLInterfaceType) => {
-      return (!typeFilter || typeFilter(type.name)) ? undefined : null;
+      return typeFilter(type.name, type) ? undefined : null;
     },
     [VisitSchemaKind.UNION_TYPE]: (type: GraphQLUnionType) => {
-      return (!typeFilter || typeFilter(type.name)) ? undefined : null;
+      return typeFilter(type.name, type) ? undefined : null;
     },
     [VisitSchemaKind.INPUT_OBJECT_TYPE]: (type: GraphQLInputObjectType) => {
-      return (!typeFilter || typeFilter(type.name)) ? undefined : null;
+      return typeFilter(type.name, type) ? undefined : null;
     },
     [VisitSchemaKind.ENUM_TYPE]: (type: GraphQLEnumType) => {
-      return (!typeFilter || typeFilter(type.name)) ? undefined : null;
+      return typeFilter(type.name, type) ? undefined : null;
     },
     [VisitSchemaKind.SCALAR_TYPE]: (type: GraphQLScalarType) => {
-      return (!typeFilter || typeFilter(type.name)) ? undefined : null;
+      return typeFilter(type.name, type) ? undefined : null;
     },
   });
 
@@ -76,49 +74,24 @@ function filterRootFields(
   operation: 'Query' | 'Mutation' | 'Subscription',
   rootFieldFilter: RootFieldFilter,
 ): GraphQLObjectType {
-  const resolveType = createResolveType((_, t) => t);
-  const fields = type.getFields();
-  const newFields = {};
-  Object.keys(fields).forEach(fieldName => {
-    if (rootFieldFilter(operation, fieldName)) {
-      newFields[fieldName] = fieldToFieldConfig(fields[fieldName], resolveType, true);
+  const config = type.toConfig();
+  Object.keys(config.fields).forEach(fieldName => {
+    if (!rootFieldFilter(operation, fieldName)) {
+      delete config.fields[fieldName];
     }
   });
-  if (isEmptyObject(newFields)) {
-    return null;
-  } else {
-    return new GraphQLObjectType({
-      name: type.name,
-      description: type.description,
-      astNode: type.astNode,
-      fields: newFields,
-    });
-  }
+  return new GraphQLObjectType(config);
 }
 
 function filterObjectFields(
   type: GraphQLObjectType,
   fieldFilter: FieldFilter,
 ): GraphQLObjectType {
-  const resolveType = createResolveType((_, t) => t);
-  const fields = type.getFields();
-  const interfaces = type.getInterfaces();
-  const newFields = {};
-  Object.keys(fields).forEach(fieldName => {
-    if (fieldFilter(type.name, fieldName)) {
-      newFields[fieldName] = fieldToFieldConfig(fields[fieldName], resolveType, true);
+  const config = type.toConfig();
+  Object.keys(config.fields).forEach(fieldName => {
+    if (!fieldFilter(type.name, fieldName)) {
+      delete config.fields[fieldName];
     }
   });
-  if (isEmptyObject(newFields)) {
-    return null;
-  } else {
-    return new GraphQLObjectType({
-      name: type.name,
-      description: type.description,
-      astNode: type.astNode,
-      isTypeOf: type.isTypeOf,
-      fields: newFields,
-      interfaces: () => interfaces.map(iface => resolveType(iface)),
-    });
-  }
+  return new GraphQLObjectType(config);
 }

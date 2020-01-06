@@ -4,6 +4,7 @@ import { expect } from 'chai';
 import {
   GraphQLSchema,
   GraphQLNamedType,
+  GraphQLScalarType,
   graphql,
   Kind,
   SelectionSetNode,
@@ -25,9 +26,79 @@ import {
   ReplaceFieldWithFragment,
   FilterToSchema,
   TransformQuery,
+  AddReplacementFragments,
 } from '../transforms';
+import {
+  concatInlineFragments,
+  parseFragmentToInlineFragment
+} from '../utils';
 
 describe('transforms', () => {
+  describe('base transform function', () => {
+    let schema: GraphQLSchema;
+    let scalarTest = `
+      scalar TestScalar
+      type TestingScalar {
+        value: TestScalar
+      }
+
+      type Query {
+        testingScalar(input: TestScalar): TestingScalar
+      }
+    `;
+
+    let scalarSchema: GraphQLSchema;
+
+    scalarSchema = makeExecutableSchema({
+      typeDefs: scalarTest,
+      resolvers: {
+        TestScalar: new GraphQLScalarType({
+          name: 'TestScalar',
+          description: undefined,
+          serialize: value => (value as string).slice(1),
+          parseValue: value => `_${value}`,
+          parseLiteral: (ast: any) => `_${ast.value}`,
+        }),
+        Query: {
+          testingScalar(parent, args) {
+            return {
+              value: args.input[0] === '_' ? args.input : null
+            };
+          },
+        },
+      },
+    });
+
+    before(() => {
+      schema = transformSchema(scalarSchema, []);
+    });
+    it('should work', async () => {
+      const result = await graphql(
+        schema,
+        `
+          query($input: TestScalar) {
+            testingScalar(input: $input) {
+              value
+            }
+          }
+        `,
+        {},
+        {},
+        {
+          input: 'test',
+        },
+      );
+
+      expect(result).to.deep.equal({
+        data: {
+          testingScalar: {
+            value: 'test',
+          },
+        },
+      });
+    });
+  });
+
   describe('rename type', () => {
     let schema: GraphQLSchema;
     before(() => {
@@ -94,7 +165,8 @@ describe('transforms', () => {
     let schema: GraphQLSchema;
     before(() => {
       const transforms = [
-        new RenameTypes((name: string) => `Property_${name}`),
+        new RenameTypes((name: string) => `_${name}`),
+        new RenameTypes((name: string) => `Property${name}`),
       ];
       schema = transformSchema(propertySchema, transforms);
     });
@@ -1048,6 +1120,111 @@ describe('transforms', () => {
           },
         },
       });
+    });
+  });
+});
+
+describe('replaces field with processed fragment node', () => {
+  let data: any;
+  let schema: GraphQLSchema;
+  let subSchema: GraphQLSchema;
+  before(() => {
+    data = {
+      u1: {
+        id: 'u1',
+        name: 'joh',
+        surname: 'gats',
+      },
+    };
+
+    subSchema = makeExecutableSchema({
+      typeDefs: `
+        type User {
+          id: ID!
+          name: String!
+          surname: String!
+        }
+
+        type Query {
+          userById(id: ID!): User
+        }
+      `,
+      resolvers: {
+        Query: {
+          userById(parent, { id }) {
+            return data[id];
+          },
+        },
+      },
+    });
+
+    schema = makeExecutableSchema({
+      typeDefs: `
+        type User {
+          id: ID!
+          name: String!
+          surname: String!
+          fullname: String!
+        }
+
+        type Query {
+          userById(id: ID!): User
+        }
+      `,
+      resolvers: {
+        Query: {
+          userById(parent, { id }, context, info) {
+            return delegateToSchema({
+              schema: subSchema,
+              operation: 'query',
+              fieldName: 'userById',
+              args: { id },
+              context,
+              info,
+              transforms: [
+                new AddReplacementFragments(subSchema, {
+                  User: {
+                    fullname: concatInlineFragments(
+                      'User',
+                      [
+                        parseFragmentToInlineFragment(`fragment UserName on User { name }`),
+                        parseFragmentToInlineFragment(`fragment UserSurname on User { surname }`),
+                      ],
+                    ),
+                  }
+                }),
+              ],
+            });
+          },
+        },
+        User: {
+          fullname(parent, args, context, info) {
+            return `${parent.name} ${parent.surname}`;
+          },
+        },
+      },
+    });
+  });
+  it('should work', async () => {
+    const result = await graphql(
+      schema,
+      `
+        query {
+          userById(id: "u1") {
+            id
+            fullname
+          }
+        }
+      `,
+    );
+
+    expect(result).to.deep.equal({
+      data: {
+        userById: {
+          id: 'u1',
+          fullname: 'joh gats',
+        },
+      },
     });
   });
 });

@@ -1,39 +1,52 @@
 import { GraphQLSchema } from 'graphql';
 import { addResolveFunctionsToSchema } from '../makeExecutableSchema';
 
-import { visitSchema } from '../transforms/visitSchema';
 import { Transform, applySchemaTransforms } from '../transforms/transforms';
 import {
   generateProxyingResolvers,
-  generateSimpleMapping,
+  stripResolvers,
 } from '../stitching/resolvers';
 import {
-  SchemaExecutionConfig,
-  isSchemaExecutionConfig,
+  SubschemaConfig,
+  isSubschemaConfig,
 } from '../Interfaces';
 
-export default function transformSchema(
-  schemaOrSchemaExecutionConfig: GraphQLSchema | SchemaExecutionConfig,
-  transforms: Array<Transform>,
-): GraphQLSchema & { transforms: Array<Transform> } {
-  const targetSchema: GraphQLSchema = isSchemaExecutionConfig(schemaOrSchemaExecutionConfig) ?
-    schemaOrSchemaExecutionConfig.schema : schemaOrSchemaExecutionConfig;
+import { cloneSchema } from '../utils/clone';
 
-  let schema = visitSchema(targetSchema, {}, true);
-  const mapping = generateSimpleMapping(targetSchema);
-  const resolvers = generateProxyingResolvers(
-    schemaOrSchemaExecutionConfig,
-    transforms,
-    mapping,
-  );
-  schema = addResolveFunctionsToSchema({
+export function wrapSchema(
+  subschema: GraphQLSchema | SubschemaConfig,
+  transforms: Array<Transform> = [],
+): GraphQLSchema {
+  if (isSubschemaConfig(subschema)) {
+    if (transforms) {
+      subschema.transforms = (subschema.transforms || []).concat(transforms);
+    }
+  } else {
+    subschema = {
+      schema: subschema,
+      transforms,
+    };
+  }
+
+  const schema = cloneSchema(subschema.schema);
+  stripResolvers(schema);
+
+  addResolveFunctionsToSchema({
     schema,
-    resolvers,
+    resolvers: generateProxyingResolvers(subschema),
     resolverValidationOptions: {
       allowResolversNotInSchema: true,
     },
   });
-  schema = applySchemaTransforms(schema, transforms);
-  (schema as any).transforms = transforms;
+
+  return applySchemaTransforms(schema, subschema.transforms);
+}
+
+export default function transformSchema(
+  subschema: GraphQLSchema | SubschemaConfig,
+  transforms: Array<Transform>,
+): GraphQLSchema & { transforms: Array<Transform> } {
+  const schema = wrapSchema(subschema, transforms);
+  (schema as any).transforms = transforms.slice().reverse();
   return schema as GraphQLSchema & { transforms: Array<Transform> };
 }

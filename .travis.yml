@@ -1,14 +1,14 @@
 language: node_js
 node_js:
-  - "6"
   - "8"
   - "10"
 
 install:
   - npm config set spin=false
-  - npm install -g coveralls
+  - npm install -g mocha coveralls
   - npm install
   - npm install graphql@$GRAPHQL_VERSION
+  - npm install @types/graphql@$TYPES_GRAPHQL_VERSION
 
 script:
   - npm test
@@ -20,4 +20,4 @@ script:
 sudo: false
 
 env:
-  - GRAPHQL_VERSION='^14.0'
+  - GRAPHQL_VERSION='^14.0' TYPES_GRAPHQL_VERSION='^14.0'

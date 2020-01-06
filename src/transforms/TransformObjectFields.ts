@@ -1,7 +1,6 @@
 import {
   GraphQLObjectType,
   GraphQLSchema,
-  GraphQLNamedType,
   GraphQLField,
   GraphQLFieldConfig,
   GraphQLType,
@@ -15,17 +14,16 @@ import {
   SelectionNode,
   FragmentDefinitionNode
 } from 'graphql';
-import isEmptyObject from '../isEmptyObject';
-import { Request } from '../Interfaces';
+import isEmptyObject from '../utils/isEmptyObject';
+import { Request, VisitSchemaKind } from '../Interfaces';
 import { Transform } from './transforms';
-import { visitSchema, VisitSchemaKind } from './visitSchema';
-import { createResolveType, fieldToFieldConfig } from '../stitching/schemaRecreation';
+import { visitSchema } from '../utils/visitSchema';
 
 export type ObjectFieldTransformer = (
   typeName: string,
   fieldName: string,
   field: GraphQLField<any, any>,
-) => GraphQLFieldConfig<any, any> | { name: string; field: GraphQLFieldConfig<any, any> } | null | undefined;
+) => GraphQLFieldConfig<any, any> | RenamedField | null | undefined;
 
 export type FieldNodeTransformer = (
   typeName: string,
@@ -40,10 +38,12 @@ type FieldMapping = {
   };
 };
 
+type RenamedField = { name: string; field?: GraphQLFieldConfig<any, any> };
+
 export default class TransformObjectFields implements Transform {
   private objectFieldTransformer: ObjectFieldTransformer;
   private fieldNodeTransformer: FieldNodeTransformer;
-  private schema: GraphQLSchema;
+  private transformedSchema: GraphQLSchema;
   private mapping: FieldMapping;
 
   constructor(
@@ -56,8 +56,7 @@ export default class TransformObjectFields implements Transform {
   }
 
   public transformSchema(originalSchema: GraphQLSchema): GraphQLSchema {
-    this.schema = originalSchema;
-    return visitSchema(originalSchema, {
+    this.transformedSchema = visitSchema(originalSchema, {
       [VisitSchemaKind.ROOT_OBJECT]: () => {
         return undefined;
       },
@@ -65,6 +64,8 @@ export default class TransformObjectFields implements Transform {
         return this.transformFields(type, this.objectFieldTransformer);
       }
     });
+
+    return this.transformedSchema;
   }
 
   public transformRequest(originalRequest: Request): Request {
@@ -90,9 +91,7 @@ export default class TransformObjectFields implements Transform {
     type: GraphQLObjectType,
     objectFieldTransformer: ObjectFieldTransformer
   ): GraphQLObjectType {
-    const resolveType = createResolveType(
-      (name: string, originalType: GraphQLNamedType): GraphQLNamedType => originalType
-    );
+    const typeConfig = type.toConfig();
     const fields = type.getFields();
     const newFields = {};
 
@@ -101,31 +100,21 @@ export default class TransformObjectFields implements Transform {
       const transformedField = objectFieldTransformer(type.name, fieldName, field);
 
       if (typeof transformedField === 'undefined') {
-        newFields[fieldName] = fieldToFieldConfig(field, resolveType, true);
+        newFields[fieldName] = typeConfig.fields[fieldName];
       } else if (transformedField !== null) {
-        const newName = (transformedField as { name: string; field: GraphQLFieldConfig<any, any> }).name;
+        const newName = (transformedField as RenamedField).name;
 
         if (newName) {
-          newFields[newName] = (transformedField as {
-            name: string;
-            field: GraphQLFieldConfig<any, any>;
-          }).field;
+          newFields[newName] = (transformedField as RenamedField).field ?
+            (transformedField as RenamedField).field :
+            typeConfig.fields[fieldName];
+
           if (newName !== fieldName) {
             const typeName = type.name;
             if (!this.mapping[typeName]) {
               this.mapping[typeName] = {};
             }
             this.mapping[typeName][newName] = fieldName;
-
-            const originalResolver = (transformedField as {
-              name: string;
-              field: GraphQLFieldConfig<any, any>;
-            }).field.resolve;
-            (newFields[newName] as GraphQLFieldConfig<any, any>).resolve = (parent, args, context, info) =>
-              originalResolver(parent, args, context, {
-                ...info,
-                fieldName
-              });
           }
         } else {
           newFields[fieldName] = transformedField;
@@ -136,12 +125,8 @@ export default class TransformObjectFields implements Transform {
       return null;
     } else {
       return new GraphQLObjectType({
-        name: type.name,
-        description: type.description,
-        astNode: type.astNode,
-        isTypeOf: type.isTypeOf,
+        ...type.toConfig(),
         fields: newFields,
-        interfaces: () => type.getInterfaces().map(iface => resolveType(iface))
       });
     }
   }
@@ -152,7 +137,7 @@ export default class TransformObjectFields implements Transform {
     fieldNodeTransformer?: FieldNodeTransformer,
     fragments: Record<string, FragmentDefinitionNode> = {},
   ): DocumentNode {
-    const typeInfo = new TypeInfo(this.schema);
+    const typeInfo = new TypeInfo(this.transformedSchema);
     const newDocument: DocumentNode = visit(
       document,
       visitWithTypeInfo(typeInfo, {
@@ -173,19 +158,24 @@ export default class TransformObjectFields implements Transform {
                 if (Array.isArray(transformedSelection)) {
                   newSelections = newSelections.concat(transformedSelection);
                 } else if (transformedSelection.kind === Kind.FIELD) {
-                  let originalName;
-                  if (mapping[parentTypeName]) {
-                    originalName = mapping[parentTypeName][newName];
+                  const oldName = mapping[parentTypeName] && mapping[parentTypeName][newName];
+                  if (oldName) {
+                    newSelections.push({
+                      ...transformedSelection,
+                      name: {
+                        kind: Kind.NAME,
+                        value: oldName
+                      },
+                      alias: {
+                        kind: Kind.NAME,
+                        value: newName
+                      }
+                    });
+                  } else {
+                    newSelections.push(transformedSelection);
                   }
-                  newSelections.push({
-                    ...transformedSelection,
-                    name: {
-                      ...transformedSelection.name,
-                      value: originalName || transformedSelection.name.value
-                    }
-                  });
                 } else {
-                  newSelections.push(selection);
+                  newSelections.push(transformedSelection);
                 }
               } else {
                 newSelections.push(selection);

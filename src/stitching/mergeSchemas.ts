@@ -1,9 +1,7 @@
 import {
   DocumentNode,
-  GraphQLField,
   GraphQLNamedType,
   GraphQLObjectType,
-  GraphQLResolveInfo,
   GraphQLScalarType,
   GraphQLSchema,
   extendSchema,
@@ -15,46 +13,44 @@ import {
 } from 'graphql';
 import {
   IDelegateToSchemaOptions,
-  IFieldResolver,
-  IResolvers,
   MergeInfo,
   OnTypeConflict,
   IResolversParameter,
-  SchemaExecutionConfig,
-  isSchemaExecutionConfig,
-  isRemoteSchemaExecutionConfig,
+  isSubschemaConfig,
+  SchemaLikeObject,
+  IResolvers,
+  SubschemaConfig,
+  IGraphQLToolsResolveInfo,
+  MergedTypeMapping,
 } from '../Interfaces';
 import {
   extractExtensionDefinitions,
   addResolveFunctionsToSchema,
 } from '../makeExecutableSchema';
-import {
-  recreateType,
-  recreateDirective,
-  fieldMapToFieldConfigMap,
-  createResolveType,
-} from './schemaRecreation';
 import delegateToSchema from './delegateToSchema';
 import delegateToRemoteSchema from './delegateToRemoteSchema';
 import typeFromAST from './typeFromAST';
 import {
   Transform,
   ExpandAbstractTypes,
-  ReplaceFieldWithFragment,
+  wrapSchema,
+  AddReplacementFragments,
 } from '../transforms';
-import mergeDeep from '../mergeDeep';
-import { SchemaDirectiveVisitor } from '../schemaVisitor';
+import {
+  SchemaDirectiveVisitor,
+  cloneDirective,
+  healSchema,
+  healTypes,
+  forEachField,
+  mergeDeep,
+  parseFragmentToInlineFragment,
+  concatInlineFragments,
+} from '../utils';
 
 type MergeTypeCandidate = {
-  schema?: GraphQLSchema;
-  executionConfig?: SchemaExecutionConfig;
   type: GraphQLNamedType;
-};
-
-type MergeTypeCandidatesResult = {
-  type?: GraphQLNamedType;
-  resolvers?: IResolvers;
-  candidate?: MergeTypeCandidate;
+  schema?: GraphQLSchema;
+  subschema?: GraphQLSchema | SubschemaConfig;
 };
 
 type CandidateSelector = (
@@ -62,16 +58,22 @@ type CandidateSelector = (
 ) => MergeTypeCandidate;
 
 export default function mergeSchemas({
-  schemas,
+  subschemas = [],
+  types = [],
+  typeDefs,
+  schemas: schemaLikeObjects = [],
+  mergeTypes = [],
   onTypeConflict,
-  resolvers,
+  resolvers = {},
   schemaDirectives,
   inheritResolversFromInterfaces,
   mergeDirectives,
 }: {
-  schemas: Array<
-    string | GraphQLSchema | SchemaExecutionConfig | DocumentNode | Array<GraphQLNamedType>
-  >;
+  subschemas?: Array<GraphQLSchema | SubschemaConfig>;
+  types?: Array<GraphQLNamedType>;
+  typeDefs?: string | DocumentNode;
+  schemas?: Array<SchemaLikeObject>;
+  mergeTypes?: Array<string>;
   onTypeConflict?: OnTypeConflict;
   resolvers?: IResolversParameter;
   schemaDirectives?: { [name: string]: typeof SchemaDirectiveVisitor };
@@ -80,57 +82,40 @@ export default function mergeSchemas({
 }): GraphQLSchema {
   const allSchemas: Array<GraphQLSchema> = [];
   const typeCandidates: { [name: string]: Array<MergeTypeCandidate> } = {};
-  const types: { [name: string]: GraphQLNamedType } = {};
+  const typeMap: { [name: string]: GraphQLNamedType } = {};
   const extensions: Array<DocumentNode> = [];
   const directives: Array<GraphQLDirective> = [];
-  const fragments: Array<{
-    field: string;
-    fragment: string;
-  }> = [];
 
-  const resolveType = createResolveType(name => {
-    if (types[name] === undefined) {
-      throw new Error(`Can't find type ${name}.`);
-    }
-    return types[name];
-  });
+  let schemas: Array<SchemaLikeObject> = [...subschemas];
+  if (typeDefs) {
+    schemas.push(typeDefs);
+  }
+  if (types) {
+    schemas.push(types);
+  }
+  schemas = [...schemas, ...schemaLikeObjects];
 
-  schemas.forEach(schemaOrSchemaExecutionConfig => {
-    let schema: string | GraphQLSchema | SchemaExecutionConfig | DocumentNode | Array<GraphQLNamedType>;
-    let executionConfig: SchemaExecutionConfig;
-    if (isSchemaExecutionConfig(schemaOrSchemaExecutionConfig)) {
-      executionConfig  = schemaOrSchemaExecutionConfig;
-      schema = schemaOrSchemaExecutionConfig.schema;
-    } else {
-      schema = schemaOrSchemaExecutionConfig;
-    }
+  schemas.forEach(schemaLikeObject => {
+    if (schemaLikeObject instanceof GraphQLSchema || isSubschemaConfig(schemaLikeObject)) {
+      const schema = wrapSchema(schemaLikeObject);
 
-    if (schema instanceof GraphQLSchema) {
       allSchemas.push(schema);
-      const queryType = schema.getQueryType();
-      const mutationType = schema.getMutationType();
-      const subscriptionType = schema.getSubscriptionType();
-      if (queryType) {
-        addTypeCandidate(typeCandidates, 'Query', {
-          schema,
-          executionConfig,
-          type: queryType,
-        });
-      }
-      if (mutationType) {
-        addTypeCandidate(typeCandidates, 'Mutation', {
-          schema,
-          executionConfig,
-          type: mutationType,
-        });
-      }
-      if (subscriptionType) {
-        addTypeCandidate(typeCandidates, 'Subscription', {
-          schema,
-          executionConfig,
-          type: subscriptionType,
-        });
-      }
+
+      const operationTypes = {
+        Query: schema.getQueryType(),
+        Mutation: schema.getMutationType(),
+        Subscription: schema.getSubscriptionType(),
+      };
+
+      Object.keys(operationTypes).forEach(typeName => {
+        if (operationTypes[typeName]) {
+          addTypeCandidate(typeCandidates, typeName, {
+            schema,
+            type: operationTypes[typeName],
+            subschema: schemaLikeObject,
+          });
+        }
+      });
 
       if (mergeDirectives) {
         const directiveInstances = schema.getDirectives();
@@ -139,29 +124,29 @@ export default function mergeSchemas({
         });
       }
 
-      const typeMap = schema.getTypeMap();
-      Object.keys(typeMap).forEach(typeName => {
-        const type: GraphQLNamedType = typeMap[typeName];
+      const originalTypeMap = schema.getTypeMap();
+      Object.keys(originalTypeMap).forEach(typeName => {
+        const type: GraphQLNamedType = originalTypeMap[typeName];
         if (
           isNamedType(type) &&
           getNamedType(type).name.slice(0, 2) !== '__' &&
-          type !== queryType &&
-          type !== mutationType &&
-          type !== subscriptionType
+          type !== operationTypes.Query &&
+          type !== operationTypes.Mutation &&
+          type !== operationTypes.Subscription
         ) {
           addTypeCandidate(typeCandidates, type.name, {
-            schema: schema as GraphQLSchema,
-            executionConfig,
+            schema,
             type,
+            subschema: schemaLikeObject,
           });
         }
       });
     } else if (
-      typeof schema === 'string' ||
-      (schema && (schema as DocumentNode).kind === Kind.DOCUMENT)
+      typeof schemaLikeObject === 'string' ||
+      (schemaLikeObject && (schemaLikeObject as DocumentNode).kind === Kind.DOCUMENT)
     ) {
       let parsedSchemaDocument =
-      typeof schema === 'string' ? parse(schema) : (schema as DocumentNode);
+        typeof schemaLikeObject === 'string' ? parse(schemaLikeObject) : (schemaLikeObject as DocumentNode);
       parsedSchemaDocument.definitions.forEach(def => {
         const type = typeFromAST(def);
         if (type instanceof GraphQLDirective && mergeDirectives) {
@@ -179,8 +164,8 @@ export default function mergeSchemas({
       if (extensionsDocument.definitions.length > 0) {
         extensions.push(extensionsDocument);
       }
-    } else if (Array.isArray(schema)) {
-      schema.forEach(type => {
+    } else if (Array.isArray(schemaLikeObject)) {
+      schemaLikeObject.forEach(type => {
         addTypeCandidate(typeCandidates, type.name, {
           type,
         });
@@ -190,42 +175,19 @@ export default function mergeSchemas({
     }
   });
 
-  const mergeInfo = createMergeInfo(allSchemas, fragments);
-
-  if (!resolvers) {
-    resolvers = {};
-  } else if (typeof resolvers === 'function') {
-    console.warn(
-      'Passing functions as resolver parameter is deprecated. Use `info.mergeInfo` instead.',
-    );
-    resolvers = resolvers(mergeInfo);
-  } else if (Array.isArray(resolvers)) {
-    resolvers = resolvers.reduce((left, right) => {
-      if (typeof right === 'function') {
-        console.warn(
-          'Passing functions as resolver parameter is deprecated. Use `info.mergeInfo` instead.',
-        );
-        right = right(mergeInfo);
-      }
-      return mergeDeep(left, right);
-    }, {});
-  }
-
-  let generatedResolvers = {};
-
   Object.keys(typeCandidates).forEach(typeName => {
-    const mergeResult: MergeTypeCandidatesResult = mergeTypeCandidates(
-      typeName,
-      typeCandidates[typeName],
-      onTypeConflict ? onTypeConflictToCandidateSelector(onTypeConflict) : undefined
-    );
-    let type: GraphQLNamedType;
-    let typeResolvers: IResolvers;
-    if (mergeResult.type) {
-      type = mergeResult.type;
-      typeResolvers = mergeResult.resolvers;
+    if (
+      typeName === 'Query' ||
+      typeName === 'Mutation' ||
+      typeName === 'Subscription' ||
+      mergeTypes.includes(typeName)
+    ) {
+      typeMap[typeName] = mergeFields(typeName, typeCandidates[typeName]);
     } else {
-      throw new Error(`Invalid mergeTypeCandidates result for type ${typeName}`);
+      const candidateSelector = onTypeConflict ?
+        onTypeConflictToCandidateSelector(onTypeConflict) :
+        (cands: Array<MergeTypeCandidate>) => cands[cands.length - 1];
+      typeMap[typeName] = candidateSelector(typeCandidates[typeName]).type;
     }
     types[typeName] = recreateType(type, resolveType, false);
     if (typeResolvers !== undefined) {
@@ -233,13 +195,15 @@ export default function mergeSchemas({
     }
   });
 
+  healTypes(typeMap, directives, { skipPruning: true });
+
   let mergedSchema = new GraphQLSchema({
-    query: types.Query as GraphQLObjectType,
-    mutation: types.Mutation as GraphQLObjectType,
-    subscription: types.Subscription as GraphQLObjectType,
-    types: Object.keys(types).map(key => types[key]),
+    query: typeMap.Query as GraphQLObjectType,
+    mutation: typeMap.Mutation as GraphQLObjectType,
+    subscription: typeMap.Subscription as GraphQLObjectType,
+    types: Object.keys(typeMap).map(key => typeMap[key]),
     directives: directives.length ?
-      directives.map((directive) => recreateDirective(directive, resolveType)) :
+      directives.map((directive) => cloneDirective(directive)) :
       undefined
   });
 
@@ -249,31 +213,35 @@ export default function mergeSchemas({
     });
   });
 
-  if (!resolvers) {
-    resolvers = {};
+  let mergeInfo = createMergeInfo(allSchemas, mergeTypes, typeCandidates);
+
+  if (typeof resolvers === 'function') {
+    console.warn(
+      'Passing functions as resolver parameter is deprecated. Use `info.mergeInfo` instead.',
+    );
+    resolvers = resolvers(mergeInfo) || {};
   } else if (Array.isArray(resolvers)) {
-    resolvers = resolvers.reduce(mergeDeep, {});
+    resolvers = resolvers.reduce((left, right) => {
+      if (typeof right === 'function') {
+        console.warn(
+          'Passing functions as resolver parameter is deprecated. Use `info.mergeInfo` instead.',
+        );
+        right = right(mergeInfo);
+      }
+      return mergeDeep(left, right);
+    }, {}) || {};
+    if (!resolvers) {
+      resolvers = {};
+    } else if (Array.isArray(resolvers)) {
+      resolvers = resolvers.reduce(mergeDeep, {});
+    }
   }
 
-  Object.keys(resolvers).forEach(typeName => {
-    const type = resolvers[typeName];
-    if (type instanceof GraphQLScalarType) {
-      return;
-    }
-    Object.keys(type).forEach(fieldName => {
-      const field = type[fieldName];
-      if (field.fragment) {
-        fragments.push({
-          field: fieldName,
-          fragment: field.fragment,
-        });
-      }
-    });
-  });
+  mergeInfo = completeMergeInfo(mergeInfo, resolvers);
 
-  mergedSchema = addResolveFunctionsToSchema({
+  addResolveFunctionsToSchema({
     schema: mergedSchema,
-    resolvers: mergeDeep(generatedResolvers, resolvers),
+    resolvers: resolvers as IResolvers,
     inheritResolversFromInterfaces
   });
 
@@ -301,23 +269,44 @@ export default function mergeSchemas({
     );
   }
 
+  healSchema(mergedSchema);
+
   return mergedSchema;
 }
 
 function createMergeInfo(
   allSchemas: Array<GraphQLSchema>,
-  fragments: Array<{
-    field: string;
-    fragment: string;
-  }>,
+  mergeTypes: Array<string>,
+  typeCandidates: { [name: string]: Array<MergeTypeCandidate> },
 ): MergeInfo {
+  const mergedTypes: MergedTypeMapping = {};
+
+  mergeTypes.forEach(typeName => {
+    if (typeCandidates[typeName]) {
+      const subschemaConfigs: Array<SubschemaConfig> =
+        typeCandidates[typeName]
+          .filter(typeCandidate => isSubschemaConfig(typeCandidate.subschema))
+          .map(typeCandidate => typeCandidate.subschema as SubschemaConfig);
+      const inlineFragments = subschemaConfigs
+        .filter(subschemaConfig => subschemaConfig.mergedTypeConfigs[typeName].fragment)
+        .map(subschemaConfig => subschemaConfig.mergedTypeConfigs[typeName].fragment)
+        .map(fragment => parseFragmentToInlineFragment(fragment));
+      mergedTypes[typeName] = {
+        fragment: concatInlineFragments(typeName, inlineFragments),
+        subschemas: subschemaConfigs,
+      };
+    } else {
+      throw new Error(`Cannot merge type '${typeName}', type not found.`);
+    }
+  });
+
   return {
     delegate(
       operation: 'query' | 'mutation' | 'subscription',
       fieldName: string,
       args: { [key: string]: any },
       context: { [key: string]: any },
-      info: GraphQLResolveInfo,
+      info: IGraphQLToolsResolveInfo,
       transforms?: Array<Transform>,
     ) {
       console.warn(
@@ -326,7 +315,7 @@ function createMergeInfo(
       );
       const schema = guessSchemaByRootField(allSchemas, operation, fieldName);
       const expandTransforms = new ExpandAbstractTypes(info.schema, schema);
-      const fragmentTransform = new ReplaceFieldWithFragment(schema, fragments);
+      const fragmentTransform = new AddReplacementFragments(schema, info.mergeInfo.replacementFragments);
       return delegateToSchema({
         schema,
         operation,
@@ -348,8 +337,55 @@ function createMergeInfo(
         transforms: options.transforms
       });
     },
-    fragments
+    fragments: [],
+    replacementFragments: undefined,
+    mergedTypes,
   };
+}
+
+function completeMergeInfo(
+  mergeInfo: MergeInfo,
+  resolvers: IResolversParameter,
+): MergeInfo {
+  Object.keys(resolvers).forEach(typeName => {
+    const type = resolvers[typeName];
+    if (type instanceof GraphQLScalarType) {
+      return;
+    }
+    Object.keys(type).forEach(fieldName => {
+      const field = type[fieldName];
+      if (field.fragment) {
+        mergeInfo.fragments.push({
+          field: fieldName,
+          fragment: field.fragment,
+        });
+      }
+    });
+  });
+
+  const mapping = {};
+  mergeInfo.fragments.forEach(({ field, fragment }) => {
+    const parsedFragment = parseFragmentToInlineFragment(fragment);
+    const actualTypeName = parsedFragment.typeCondition.name.value;
+    mapping[actualTypeName] = mapping[actualTypeName] || {};
+    mapping[actualTypeName][field] = mapping[actualTypeName][field] || [];
+    mapping[actualTypeName][field].push(parsedFragment);
+  });
+
+  const replacementFragments = Object.create({});
+  Object.keys(mapping).forEach(typeName => {
+    Object.keys(mapping[typeName]).forEach(field => {
+      replacementFragments[typeName] = mapping[typeName] || {};
+      replacementFragments[typeName][field] = concatInlineFragments(
+        typeName,
+        mapping[typeName][field],
+      );
+    });
+  });
+
+  mergeInfo.replacementFragments = replacementFragments;
+
+  return mergeInfo;
 }
 
 function guessSchemaByRootField(
@@ -358,14 +394,7 @@ function guessSchemaByRootField(
   fieldName: string,
 ): GraphQLSchema {
   for (const schema of schemas) {
-    let rootObject: GraphQLObjectType;
-    if (operation === 'subscription') {
-      rootObject = schema.getSubscriptionType();
-    } else if (operation === 'mutation') {
-      rootObject = schema.getMutationType();
-    } else {
-      rootObject = schema.getQueryType();
-    }
+    let rootObject = operationToRootType(operation, schema);
     if (rootObject) {
       const fields = rootObject.getFields();
       if (fields[fieldName]) {
@@ -376,66 +405,6 @@ function guessSchemaByRootField(
   throw new Error(
     `Could not find subschema with field \`${operation}.${fieldName}\``,
   );
-}
-
-function createDelegatingResolver({
-  schema,
-  executionConfig,
-  operation,
-  fieldName,
-}: {
-  schema: GraphQLSchema,
-  executionConfig?: SchemaExecutionConfig,
-  operation: 'query' | 'mutation' | 'subscription',
-  fieldName: string,
-}): IFieldResolver<any, any> {
-  if (executionConfig && isRemoteSchemaExecutionConfig(executionConfig)) {
-    return (root, args, context, info) => {
-      return delegateToRemoteSchema({
-        ...executionConfig,
-        operation,
-        fieldName,
-        args,
-        context,
-        info,
-      });
-    };
-  }
-
-  return (root, args, context, info) => {
-    return info.mergeInfo.delegateToSchema({
-      schema,
-      operation,
-      fieldName,
-      args,
-      context,
-      info,
-    });
-  };
-}
-
-type FieldIteratorFn = (
-  fieldDef: GraphQLField<any, any>,
-  typeName: string,
-  fieldName: string,
-) => void;
-
-function forEachField(schema: GraphQLSchema, fn: FieldIteratorFn): void {
-  const typeMap = schema.getTypeMap();
-  Object.keys(typeMap).forEach(typeName => {
-    const type = typeMap[typeName];
-
-    if (
-      !getNamedType(type).name.startsWith('__') &&
-      type instanceof GraphQLObjectType
-    ) {
-      const fields = type.getFields();
-      Object.keys(fields).forEach(fieldName => {
-        const field = fields[fieldName];
-        fn(field, typeName, fieldName);
-      });
-    }
-  });
 }
 
 function addTypeCandidate(
@@ -473,61 +442,25 @@ function onTypeConflictToCandidateSelector(onTypeConflict: OnTypeConflict): Cand
     });
 }
 
-function mergeTypeCandidates(
-  name: string,
-  candidates: Array<MergeTypeCandidate>,
-  candidateSelector?: CandidateSelector
-): MergeTypeCandidatesResult {
-  if (!candidateSelector) {
-    candidateSelector = cands => cands[cands.length - 1];
-  }
-  const resolveType = createResolveType((_, type) => type);
-  if (name === 'Query' || name === 'Mutation' || name === 'Subscription') {
-    let fields = {};
-    let operationName: 'query' | 'mutation' | 'subscription';
-    switch (name) {
-      case 'Query':
-        operationName = 'query';
-        break;
-      case 'Mutation':
-        operationName = 'mutation';
-        break;
-      case 'Subscription':
-        operationName = 'subscription';
-        break;
-      default:
-        break;
-    }
-    const resolvers = {};
-    const resolverKey =
-      operationName === 'subscription' ? 'subscribe' : 'resolve';
-    candidates.forEach(({ type: candidateType, schema, executionConfig }) => {
-      const candidateFields = (candidateType as GraphQLObjectType).getFields();
-      fields = { ...fields, ...candidateFields };
-      Object.keys(candidateFields).forEach(fieldName => {
-        resolvers[fieldName] = {
-          [resolverKey]: schema ? createDelegatingResolver({
-            schema,
-            executionConfig,
-            operation: operationName,
-            fieldName,
-          }) : null,
-        };
-      });
-    });
-    const type = new GraphQLObjectType({
-      name,
-      fields: fieldMapToFieldConfigMap(fields, resolveType, false),
-    });
-    return {
-      type,
-      resolvers,
-    };
+function operationToRootType(
+  operation: 'query' | 'mutation' | 'subscription',
+  schema: GraphQLSchema,
+): GraphQLObjectType {
+  if (operation === 'subscription') {
+    return schema.getSubscriptionType();
+  } else if (operation === 'mutation') {
+    return schema.getMutationType();
   } else {
-    const candidate = candidateSelector(candidates);
-    return {
-      type: candidate.type,
-      candidate
-    };
+    return schema.getQueryType();
   }
+}
+
+function mergeFields(typeName: string, candidates: Array<MergeTypeCandidate>): GraphQLNamedType {
+  return new GraphQLObjectType({
+    name: typeName,
+    fields: candidates.reduce((acc, candidate) => ({
+      ...acc,
+      ...(candidate.type as GraphQLObjectType).toConfig().fields,
+    }), {}),
+  });
 }

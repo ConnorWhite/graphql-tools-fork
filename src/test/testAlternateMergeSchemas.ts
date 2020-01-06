@@ -7,12 +7,11 @@ import {
   ExecutionResult,
   subscribe,
   parse,
-  GraphQLField,
-  GraphQLNamedType,
   GraphQLScalarType,
   FieldNode,
   printSchema,
-  Kind,
+  GraphQLObjectTypeConfig,
+  GraphQLFieldConfig,
 } from 'graphql';
 import {
   transformSchema,
@@ -22,6 +21,10 @@ import {
   RenameObjectFields,
   TransformObjectFields,
   ExtendSchema,
+  WrapType,
+  WrapFields,
+  FilterRootFields,
+  FilterObjectFields,
 } from '../transforms';
 import {
   propertySchema,
@@ -31,20 +34,15 @@ import {
   subscriptionPubSubTrigger,
 } from './testingSchemas';
 import { forAwaitEach } from 'iterall';
-import { createResolveType, fieldToFieldConfig } from '../stitching/schemaRecreation';
 import { makeExecutableSchema } from '../makeExecutableSchema';
 import {
   delegateToSchema,
-  delegateToRemoteSchema,
-  defaultMergedResolver,
   mergeSchemas,
-  wrapField,
-  extractField,
-  renameField,
   createMergedResolver,
-  extractFields,
 } from '../stitching';
-import { SchemaExecutionConfig } from '../Interfaces';
+import { SubschemaConfig, MergedTypeConfig } from '../Interfaces';
+import isSpecifiedScalarType from '../utils/isSpecifiedScalarType';
+import { wrapFieldNode, renameFieldNode, hoistFieldNodes } from '../utils/fieldNodes';
 
 function renameFieldNode(fieldNode: FieldNode, name: string): FieldNode {
   return {
@@ -121,81 +119,94 @@ let linkSchema = `
 `;
 
 describe('merge schemas through transforms', () => {
-  let bookingSchemaExecConfig: SchemaExecutionConfig;
+  let bookingSubschemaConfig: SubschemaConfig;
   let mergedSchema: GraphQLSchema;
 
   before(async () => {
-    bookingSchemaExecConfig = await remoteBookingSchema;
+    bookingSubschemaConfig = await remoteBookingSchema;
 
     // namespace and strip schemas
-    const transformedPropertySchema = filterSchema({
-      schema: transformSchema(propertySchema, [
-        new RenameTypes((name: string) => `Properties_${name}`),
-        new RenameRootFields((operation: string, name: string) => `Properties_${name}`),
-      ]),
-      rootFieldFilter: (operation: string, rootField: string) =>
-        'Query.Properties_properties' === `${operation}.${rootField}`,
-    });
-    const transformedBookingSchema = filterSchema({
-      schema: transformSchema(bookingSchemaExecConfig, [
-        new RenameTypes((name: string) => `Bookings_${name}`),
-        new RenameRootFields((operation: string, name: string) => `Bookings_${name}`),
-      ]),
-      rootFieldFilter: (operation: string, rootField: string) =>
-        'Query.Bookings_bookings' === `${operation}.${rootField}`
-    });
-    const transformedSubscriptionSchema = filterSchema({
-      schema: transformSchema(subscriptionSchema, [
-        new RenameTypes((name: string) => `Subscriptions_${name}`),
-        new RenameRootFields(
-          (operation: string, name: string) => `Subscriptions_${name}`),
-      ]),
-      rootFieldFilter: (operation: string, rootField: string) =>
+    const propertySchemaTransforms = [
+      new FilterRootFields(
+        (operation: string, rootField: string) =>
+          'Query.properties' === `${operation}.${rootField}`
+      ),
+      new RenameTypes((name: string) => `Properties_${name}`),
+      new RenameRootFields((operation: string, name: string) => `Properties_${name}`),
+    ];
+    const bookingSchemaTransforms = [
+      new FilterRootFields(
+        (operation: string, rootField: string) =>
+          'Query.bookings' === `${operation}.${rootField}`
+      ),
+      new RenameTypes((name: string) => `Bookings_${name}`),
+      new RenameRootFields((operation: string, name: string) => `Bookings_${name}`),
+    ];
+    const subscriptionSchemaTransforms = [
+      new FilterRootFields(
+        (operation: string, rootField: string) =>
           // must include a Query type otherwise graphql will error
-          'Query.Subscriptions_notifications' === `${operation}.${rootField}` ||
-          'Subscription.Subscriptions_notifications' === `${operation}.${rootField}`,
-    });
+          'Query.notifications' === `${operation}.${rootField}` ||
+          'Subscription.notifications' === `${operation}.${rootField}`
+      ),
+      new RenameTypes((name: string) => `Subscriptions_${name}`),
+      new RenameRootFields(
+        (operation: string, name: string) => `Subscriptions_${name}`),
+    ];
+
+    const propertySubschema = {
+      schema: propertySchema,
+      transforms: propertySchemaTransforms,
+    };
+    const bookingSubschema = {
+      ...bookingSubschemaConfig,
+      transforms: bookingSchemaTransforms,
+    };
+    const subscriptionSubschema = {
+      schema: subscriptionSchema,
+      transforms: subscriptionSchemaTransforms,
+    };
 
     mergedSchema = mergeSchemas({
-      schemas: [
-        transformedPropertySchema,
-        transformedBookingSchema,
-        transformedSubscriptionSchema,
-        linkSchema,
+      subschemas: [
+        propertySubschema,
+        bookingSubschema,
+        subscriptionSubschema,
       ],
+      typeDefs: linkSchema,
       resolvers: {
         Query: {
           // delegating directly, no subschemas or mergeInfo
           node(parent, args, context, info) {
             if (args.id.startsWith('p')) {
               return info.mergeInfo.delegateToSchema({
-                schema: propertySchema,
+                schema: propertySubschema,
                 operation: 'query',
                 fieldName: 'propertyById',
                 args,
                 context,
                 info,
-                transforms: transformedPropertySchema.transforms,
+                transforms: [],
               });
             } else if (args.id.startsWith('b')) {
-              return delegateToRemoteSchema({
-                ...bookingSchemaExecConfig,
+              return delegateToSchema({
+                schema: bookingSubschema,
                 operation: 'query',
                 fieldName: 'bookingById',
                 args,
                 context,
                 info,
-                transforms: transformedBookingSchema.transforms,
+                transforms: [],
               });
             } else if (args.id.startsWith('c')) {
-              return delegateToRemoteSchema({
-                ...bookingSchemaExecConfig,
+              return delegateToSchema({
+                schema: bookingSubschema,
                 operation: 'query',
                 fieldName: 'customerById',
                 args,
                 context,
                 info,
-                transforms: transformedBookingSchema.transforms,
+                transforms: [],
               });
             } else {
               throw new Error('invalid id');
@@ -206,8 +217,8 @@ describe('merge schemas through transforms', () => {
           bookings: {
             fragment: 'fragment PropertyFragment on Property { id }',
             resolve(parent, args, context, info) {
-              return delegateToRemoteSchema({
-                ...bookingSchemaExecConfig,
+              return delegateToSchema({
+                schema: bookingSubschema,
                 operation: 'query',
                 fieldName: 'bookingsByPropertyId',
                 args: {
@@ -216,7 +227,6 @@ describe('merge schemas through transforms', () => {
                 },
                 context,
                 info,
-                transforms: transformedBookingSchema.transforms,
               });
             },
           },
@@ -226,7 +236,7 @@ describe('merge schemas through transforms', () => {
             fragment: 'fragment BookingFragment on Booking { propertyId }',
             resolve(parent, args, context, info) {
               return info.mergeInfo.delegateToSchema({
-                schema: propertySchema,
+                schema: propertySubschema,
                 operation: 'query',
                 fieldName: 'propertyById',
                 args: {
@@ -234,7 +244,6 @@ describe('merge schemas through transforms', () => {
                 },
                 context,
                 info,
-                transforms: transformedPropertySchema.transforms,
               });
             },
           },
@@ -353,14 +362,14 @@ describe('transform object fields', () => {
   let transformedPropertySchema: GraphQLSchema;
 
   before(async () => {
-    const resolveType = createResolveType((name: string, type: GraphQLNamedType): GraphQLNamedType => type);
     transformedPropertySchema = transformSchema(propertySchema, [
       new TransformObjectFields(
-        (typeName: string, fieldName: string, field: GraphQLField<any, any>) => {
-          const fieldConfig = fieldToFieldConfig(field, resolveType, true);
+        (typeName: string, fieldName: string) => {
           if (typeName !== 'Property' || fieldName !== 'name') {
-            return fieldConfig;
+            return undefined;
           }
+          const typeConfig = propertySchema.getType(typeName).toConfig() as GraphQLObjectTypeConfig<any, any>;
+          const fieldConfig = typeConfig.fields[fieldName] as GraphQLFieldConfig<any, any>;
           fieldConfig.resolve = () => 'test';
           return fieldConfig;
         },
@@ -416,6 +425,131 @@ describe('transform object fields', () => {
   });
 });
 
+describe('transform object fields', () => {
+  let schema: GraphQLSchema;
+
+  before(() => {
+    const ITEM = {
+      id: '123',
+      camel_case: "I'm a camel!",
+    };
+
+    const itemSchema = makeExecutableSchema({
+      typeDefs: `
+        type Item {
+          id: ID!
+          camel_case: String
+        }
+        type ItemConnection {
+          edges: [ItemEdge!]!
+        }
+        type ItemEdge {
+          node: Item!
+        }
+        type Query {
+          item: Item
+          allItems: ItemConnection!
+        }
+      `,
+      resolvers: {
+        Query: {
+          item: () => ITEM,
+          allItems: () => ({
+            edges: [
+              {
+                node: ITEM
+              }
+            ]
+          })
+        }
+      }
+    });
+
+    schema = transformSchema(itemSchema, [
+      new FilterObjectFields((_typeName, fieldName) => {
+        if (fieldName === 'id') {
+          return false;
+        }
+        return true;
+      }),
+      new RenameObjectFields((_typeName, fieldName) => {
+        if (fieldName === 'camel_case') {
+          return 'camelCase';
+        }
+        return fieldName;
+      }),
+      new RenameRootFields((_operation, fieldName) => {
+        if (fieldName === 'allItems') {
+          return 'items';
+        }
+        return fieldName;
+      }),
+    ]);
+  });
+
+  it('renaming should work', async () => {
+    const result = await graphql(
+      schema,
+      `
+        query {
+          item {
+            camelCase
+          }
+          items {
+            edges {
+              node {
+                camelCase
+             }
+            }
+          }
+        }
+      `,
+    );
+
+    const TRANSFORMED_ITEM = {
+      camelCase: "I'm a camel!",
+    };
+
+    expect(result).to.deep.equal({
+      data: {
+        item: TRANSFORMED_ITEM,
+        items: {
+          edges: [{
+            node: TRANSFORMED_ITEM,
+          }],
+        },
+      },
+    });
+  });
+
+  it('filtering should work', async () => {
+    const result = await graphql(
+      schema,
+      `
+        query {
+          items {
+            edges {
+              node {
+                id
+             }
+            }
+          }
+        }
+      `,
+    );
+
+    expect(result).to.deep.equal({
+      errors: [{
+        locations: [{
+          column: 17,
+          line: 6,
+        }],
+        message: 'Cannot query field \"id\" on type \"Item\".',
+      }],
+    });
+  });
+});
+
 describe('filter and rename object fields', () => {
   let transformedPropertySchema: GraphQLSchema;
 
@@ -429,8 +563,8 @@ describe('filter and rename object fields', () => {
         'Query.propertyById' === `${operation}.${fieldName}`,
       fieldFilter: (typeName: string, fieldName: string) =>
         (typeName === 'New_Property' || fieldName === 'name'),
-      typeFilter: (typeName: string) =>
-        (typeName === 'New_Property' || typeName === 'New_Location')
+      typeFilter: (typeName: string, type) =>
+        (typeName === 'New_Property' || typeName === 'New_Location' || isSpecifiedScalarType(type))
     });
   });
 
@@ -464,6 +598,7 @@ type Query {
             new_location {
               name
             }
+            new_error
           }
         }
       `,
@@ -482,8 +617,173 @@ type Query {
           new_location: {
             name: 'Helsinki',
           },
+          new_error: null,
         },
       },
+      errors: [
+        {
+          extensions: {
+            code: 'SOME_CUSTOM_CODE',
+          },
+          locations: [
+            {
+              column: 13,
+              line: 9,
+            },
+          ],
+          message: 'Property.error error',
+          path: [
+            'propertyById',
+            'new_error',
+          ],
+        },
+      ],
+    });
+  });
+});
+
+describe('WrapType transform', () => {
+  let transformedPropertySchema: GraphQLSchema;
+
+  before(async () => {
+    transformedPropertySchema = transformSchema(propertySchema, [
+      new WrapType('Query', 'Namespace_Query', 'namespace'),
+    ]);
+  });
+
+  it('should modify the schema', () => {
+    /* tslint:disable:max-line-length */
+    expect(printSchema(transformedPropertySchema)).to.equal(`type Address {
+  street: String
+  city: String
+  state: String
+  zip: String
+}
+
+"""Simple fake datetime"""
+scalar DateTime
+
+input InputWithDefault {
+  test: String = "Foo"
+}
+
+"""
+The \`JSON\` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
+"""
+scalar JSON
+
+type Location {
+  name: String!
+}
+
+type Namespace_Query {
+  propertyById(id: ID!): Property
+  properties(limit: Int): [Property!]
+  contextTest(key: String!): String
+  dateTimeTest: DateTime
+  jsonTest(input: JSON): JSON
+  interfaceTest(kind: TestInterfaceKind): TestInterface
+  unionTest(output: String): TestUnion
+  errorTest: String
+  errorTestNonNull: String!
+  relay: Query!
+  defaultInputTest(input: InputWithDefault!): String
+}
+
+type Property {
+  id: ID!
+  name: String!
+  location: Location
+  address: Address
+  error: String
+}
+
+type Query {
+  namespace: Namespace_Query
+}
+
+type TestImpl1 implements TestInterface {
+  kind: TestInterfaceKind
+  testString: String
+  foo: String
+}
+
+type TestImpl2 implements TestInterface {
+  kind: TestInterfaceKind
+  testString: String
+  bar: String
+}
+
+interface TestInterface {
+  kind: TestInterfaceKind
+  testString: String
+}
+
+enum TestInterfaceKind {
+  ONE
+  TWO
+}
+
+union TestUnion = TestImpl1 | UnionImpl
+
+type UnionImpl {
+  someField: String
+}
+`
+      /* tslint:enable:max-line-length */
+    );
+  });
+
+  it('should work', async () => {
+    const result = await graphql(
+      transformedPropertySchema,
+      `
+        query($pid: ID!) {
+          namespace {
+            propertyById(id: $pid) {
+              id
+              name
+              error
+            }
+          }
+        }
+      `,
+      undefined,
+      undefined,
+      {
+        pid: 'p1',
+      },
+    );
+
+    expect(result).to.deep.equal({
+      data: {
+        namespace: {
+          propertyById: {
+            id: 'p1',
+            name: 'Super great hotel',
+            error: null,
+          },
+        },
+      },
+      errors: [
+        {
+          extensions: {
+            code: 'SOME_CUSTOM_CODE',
+          },
+          locations: [
+            {
+              column: 15,
+              line: 7,
+            },
+          ],
+          message: 'Property.error error',
+          path: [
+            'namespace',
+            'propertyById',
+            'error',
+          ],
+        },
+      ]
     });
   });
 });
@@ -505,7 +805,6 @@ describe('ExtendSchema transform', () => {
             name: String
           }
         `,
-        defaultFieldResolver: defaultMergedResolver,
       }),
     ]);
   });
@@ -606,25 +905,19 @@ describe('schema transformation with extraction of nested fields', () => {
         typeDefs: `
           extend type Property {
             locationName: String
-            locationName2: String
-            pseudoWrappedError: String
+            renamedError: String
           }
         `,
         resolvers: {
           Property: {
-            locationName: createMergedResolver({ fromPath: ['location', 'name'] }),
-            //deprecated wrapField shorthand
-            locationName2: wrapField('location', 'name'),
-            pseudoWrappedError: createMergedResolver({ fromPath: ['error', 'name'] }),
+            locationName: createMergedResolver({ fromPath: ['location'] }),
           },
         },
         fieldNodeTransformerMap: {
           'Property': {
             'locationName':
               fieldNode => wrapFieldNode(renameFieldNode(fieldNode, 'name'), ['location']),
-            'locationName2':
-              fieldNode => wrapFieldNode(renameFieldNode(fieldNode, 'name'), ['location']),
-            'pseudoWrappedError': fieldNode => renameFieldNode(fieldNode, 'error'),
+            'renamedError': fieldNode => renameFieldNode(fieldNode, 'error'),
           },
         },
       }),
@@ -637,58 +930,10 @@ describe('schema transformation with extraction of nested fields', () => {
       `
         query($pid: ID!) {
           propertyById(id: $pid) {
-            test1: locationName
-            test2: locationName2
-            pseudoWrappedError
-          }
-        }
-      `,
-      {},
-      {},
-      {
-        pid: 'p1',
-      },
-    );
-
-    expect(result).to.deep.equal({
-      data: {
-        propertyById: {
-          test1: 'Helsinki',
-          test2: 'Helsinki',
-          pseudoWrappedError: null,
-        },
-      },
-      errors: [
-        {
-          extensions: {
-            code: 'SOME_CUSTOM_CODE',
-          },
-          locations: [
-            {
-              column: 13,
-              line: 6,
-            },
-          ],
-          message: 'Property.error error',
-          path: [
-            'propertyById',
-            'pseudoWrappedError',
-          ],
-        },
-      ]
-    });
-  });
-
-  it('should work to extract a field', async () => {
-    const result = await graphql(
-      transformedPropertySchema,
-      `
-        query($pid: ID!) {
-          propertyById(id: $pid) {
             id
-            test1: locationName
-            test2: locationName2
             name
+            test: locationName
+            renamedError
           }
         }
       `,
@@ -703,25 +948,40 @@ describe('schema transformation with extraction of nested fields', () => {
       data: {
         propertyById: {
           id: 'p1',
-          test1: 'Helsinki',
-          test2: 'Helsinki',
           name: 'Super great hotel',
+          test: 'Helsinki',
+          renamedError: null,
         },
       },
+      errors: [
+        {
+          extensions: {
+            code: 'SOME_CUSTOM_CODE',
+          },
+          locations: [
+            {
+              column: 13,
+              line: 7,
+            },
+          ],
+          message: 'Property.error error',
+          path: [
+            'propertyById',
+            'renamedError',
+          ],
+        },
+      ]
     });
   });
 });
 
 describe('schema transformation with wrapping of object fields', () => {
-  let transformedPropertySchema: GraphQLSchema;
-
-  before(async () => {
-    transformedPropertySchema = transformSchema(propertySchema, [
+  it('should work via ExtendSchema transform', async () => {
+    const transformedPropertySchema = transformSchema(propertySchema, [
       new ExtendSchema({
         typeDefs: `
           extend type Property {
             outerWrap: OuterWrap
-            singleWrap: InnerWrap
           }
 
           type OuterWrap {
@@ -731,34 +991,27 @@ describe('schema transformation with wrapping of object fields', () => {
           type InnerWrap {
             id: ID
             name: String
+            error: String
           }
         `,
         resolvers: {
           Property: {
-            outerWrap: (parent, args, context, info) => ({
-              innerWrap: {
-                id: createMergedResolver({ toPath: ['innerWrap', 'id'] })(parent, args, context, info),
-                name: createMergedResolver({ toPath: ['innerWrap', 'name'] })(parent, args, context, info),
-              },
-            }),
-            //deprecated extractField shorthand
-            singleWrap: (parent, args, context, info) => ({
-              id: extractField('id')(parent, args, context, info),
-              name: extractField('name')(parent, args, context, info),
-            }),
+            outerWrap: createMergedResolver({ dehoist: true }),
           },
         },
         fieldNodeTransformerMap: {
           'Property': {
-            'outerWrap': (fieldNode, fragments) => extractFields({ fieldNode, path: ['innerWrap'], fragments }),
-            'singleWrap': (fieldNode, fragments) => extractFields({ fieldNode, fragments }),
+            'outerWrap': (fieldNode, fragments) => hoistFieldNodes({
+              fieldNode,
+              fieldNames: ['id', 'name', 'error'],
+              path: ['innerWrap'],
+              fragments,
+            }),
           },
         },
       }),
     ]);
-  });
 
-  it('should work, even with aliases', async () => {
     const result = await graphql(
       transformedPropertySchema,
       `
@@ -774,17 +1027,14 @@ describe('schema transformation with wrapping of object fields', () => {
                 ...W2
               }
             }
-            singleWrap {
-              ...W1
-              ...W2
-            }
           }
         }
         fragment W1 on InnerWrap {
           one: id
+          two: error
         }
         fragment W2 on InnerWrap {
-          two: name
+          one: name
         }
     `,
       {},
@@ -800,19 +1050,179 @@ describe('schema transformation with wrapping of object fields', () => {
           test1: {
             innerWrap: {
               one: 'p1',
+              two: null,
             },
           },
           test2: {
             innerWrap: {
-              two: 'Super great hotel',
+              one: 'Super great hotel',
             },
           },
-          singleWrap: {
-            one: 'p1',
-            two: 'Super great hotel',
-          }
         },
       },
+      'errors': [{
+        'extensions': {
+          code: 'SOME_CUSTOM_CODE'
+        },
+        'locations': [{
+          column: 11,
+          line: 18
+        }],
+        message: 'Property.error error',
+        path: [
+          'propertyById',
+          'test1',
+          'innerWrap',
+          'two',
+        ],
+      }]
+    });
+  });
+
+  describe('WrapFields transform', () => {
+    it('should work', async () => {
+      const transformedPropertySchema = transformSchema(propertySchema, [
+        new WrapFields(
+          'Property',
+          ['outerWrap'],
+          ['OuterWrap'],
+          ['id', 'name', 'error'],
+        ),
+      ]);
+
+      const result = await graphql(
+        transformedPropertySchema,
+        `
+          query($pid: ID!) {
+            propertyById(id: $pid) {
+              test1: outerWrap {
+                ...W1
+              }
+              test2: outerWrap {
+                ...W2
+              }
+            }
+          }
+          fragment W1 on OuterWrap {
+            one: id
+            two: error
+          }
+          fragment W2 on OuterWrap {
+            one: name
+          }
+      `,
+        {},
+        {},
+        {
+          pid: 'p1',
+        },
+      );
+
+      expect(result).to.deep.equal({
+        data: {
+          propertyById: {
+            test1: {
+              one: 'p1',
+              two: null,
+            },
+            test2: {
+              one: 'Super great hotel',
+            },
+          },
+        },
+        'errors': [{
+          'extensions': {
+            code: 'SOME_CUSTOM_CODE'
+          },
+          'locations': [{
+            column: 13,
+            line: 14
+          }],
+          message: 'Property.error error',
+          path: [
+            'propertyById',
+            'test1',
+            'two',
+          ],
+        }]
+      });
+    });
+
+    it('should work, even with multiple fields', async () => {
+      const transformedPropertySchema = transformSchema(propertySchema, [
+        new WrapFields(
+          'Property',
+          ['outerWrap', 'innerWrap'],
+          ['OuterWrap', 'InnerWrap'],
+          ['id', 'name', 'error'],
+        ),
+      ]);
+
+      const result = await graphql(
+        transformedPropertySchema,
+        `
+          query($pid: ID!) {
+            propertyById(id: $pid) {
+              test1: outerWrap {
+                innerWrap {
+                  ...W1
+                }
+              }
+              test2: outerWrap {
+                innerWrap {
+                  ...W2
+                }
+              }
+            }
+          }
+          fragment W1 on InnerWrap {
+            one: id
+            two: error
+          }
+          fragment W2 on InnerWrap {
+            one: name
+          }
+      `,
+        {},
+        {},
+        {
+          pid: 'p1',
+        },
+      );
+
+      expect(result).to.deep.equal({
+        data: {
+          propertyById: {
+            test1: {
+              innerWrap: {
+                one: 'p1',
+                two: null,
+              },
+            },
+            test2: {
+              innerWrap: {
+                one: 'Super great hotel',
+              },
+            },
+          },
+        },
+        'errors': [{
+          'extensions': {
+            code: 'SOME_CUSTOM_CODE'
+          },
+          'locations': [{
+            column: 13,
+            line: 18
+          }],
+          message: 'Property.error error',
+          path: [
+            'propertyById',
+            'test1',
+            'innerWrap',
+            'two',
+          ],
+        }]
+      });
     });
   });
 });
@@ -826,20 +1236,11 @@ describe('schema transformation with renaming of object fields', () => {
         typeDefs: `
           extend type Property {
             new_error: String
-            new_error2: String
           }
         `,
-        resolvers: {
-          Property: {
-            new_error: createMergedResolver({ fromPath: ['error'] }),
-            //deprecated renameField shorthand
-            new_error2: renameField('error'),
-          },
-        },
         fieldNodeTransformerMap: {
           'Property': {
             'new_error': fieldNode => renameFieldNode(fieldNode, 'error'),
-            'new_error2': fieldNode => renameFieldNode(fieldNode, 'error'),
           },
         },
       }),
@@ -853,7 +1254,6 @@ describe('schema transformation with renaming of object fields', () => {
         query($pid: ID!) {
           propertyById(id: $pid) {
             new_error
-            new_error2
           }
         }
     `,
@@ -868,7 +1268,6 @@ describe('schema transformation with renaming of object fields', () => {
       data: {
         propertyById: {
           new_error: null,
-          new_error2: null,
         },
       },
       errors: [
@@ -881,35 +1280,11 @@ describe('schema transformation with renaming of object fields', () => {
               column: 13,
               line: 4,
             },
-            {
-              column: 13,
-              line: 5,
-            },
           ],
           message: 'Property.error error',
           path: [
             'propertyById',
             'new_error',
-          ],
-        },
-        {
-          extensions: {
-            code: 'SOME_CUSTOM_CODE',
-          },
-          locations: [
-            {
-              column: 13,
-              line: 4,
-            },
-            {
-              column: 13,
-              line: 5,
-            },
-          ],
-          message: 'Property.error error',
-          path: [
-            'propertyById',
-            'new_error2',
           ],
         },
       ],
@@ -1308,5 +1683,126 @@ describe('onTypeConflict', () => {
     expect(result1.data.test1.fieldB).to.equal('B');
     const result2 = await graphql(mergedSchema, `{ test1 { fieldC } }`);
     expect(result2.data).to.be.undefined;
+  });
+});
+
+describe('mergeTypes', () => {
+  let schema1: GraphQLSchema;
+  let schema2: GraphQLSchema;
+
+  beforeEach(() => {
+    const typeDefs1 = `
+      type Query {
+        rootField1: Wrapper
+        getTest(id: ID): Test
+      }
+
+      type Wrapper {
+        test: Test
+      }
+
+      type Test {
+        id: ID
+        field1: String
+      }
+    `;
+
+    const typeDefs2 = `
+      type Query {
+        rootField2: Wrapper
+        getTest(id: ID): Test
+      }
+
+      type Wrapper {
+        test: Test
+      }
+
+      type Test {
+        id: ID
+        field2: String
+      }
+    `;
+
+    schema1 = makeExecutableSchema({
+      typeDefs: typeDefs1,
+      resolvers: {
+        Query: {
+          rootField1: () => ({ test: { id: '1' } }),
+          getTest: (parent, { id }) => ({ id }),
+        },
+        Test: {
+          field1: parent => parent.id,
+        }
+      }
+    });
+
+    schema2 = makeExecutableSchema({
+      typeDefs: typeDefs2,
+      resolvers: {
+        Query: {
+          rootField2: () => ({ test: { id: '2' } }),
+          getTest: (parent, { id }) => ({ id }),
+        },
+        Test: {
+          field2: parent => parent.id,
+        }
+      }
+    });
+  });
+
+  it('can merge types', async () => {
+    const subschemaConfig1: SubschemaConfig = { schema: schema1 };
+    const subschemaConfig2: SubschemaConfig = { schema: schema2 };
+
+    const mergedTypeConfigs1: Record<string, MergedTypeConfig> = {
+      Test: {
+        fragment: 'fragment TestFragment on Test { id }',
+        mergedTypeResolver: (subschema, originalResult, context, info) => {
+          return delegateToSchema({
+            schema: subschemaConfig1,
+            operation: 'query',
+            fieldName: 'getTest',
+            args: { id: originalResult.id },
+            context,
+            info,
+          });
+        }
+      }
+    };
+
+    const mergedTypeConfigs2: Record<string, MergedTypeConfig> = {
+      Test: {
+        fragment: 'fragment TestFragment on Test { id }',
+        mergedTypeResolver: async (subschema, originalResult, context, info) => {
+          return delegateToSchema({
+            schema: subschemaConfig2,
+            operation: 'query',
+            fieldName: 'getTest',
+            args: { id: originalResult.id },
+            context,
+            info,
+          });
+        }
+      }
+    };
+
+    subschemaConfig1.mergedTypeConfigs = mergedTypeConfigs1;
+    subschemaConfig2.mergedTypeConfigs = mergedTypeConfigs2;
+
+    const mergedSchema = mergeSchemas({
+      subschemas: [subschemaConfig1, subschemaConfig2],
+      mergeTypes: ['Test'],
+    });
+    const result1 = await graphql(mergedSchema, `{ rootField1 { test { field1 field2 } } }`);
+    expect(result1).to.deep.equal({
+      data: {
+        rootField1: {
+          test: {
+            field1: '1',
+            field2: '1',
+          }
+        }
+      }
+    });
   });
 });

@@ -2,8 +2,11 @@ import { defaultFieldResolver, GraphQLSchema, GraphQLFieldResolver } from 'graph
 
 import { IExecutableSchemaDefinition, ILogger } from './Interfaces';
 
-import { SchemaDirectiveVisitor } from './schemaVisitor';
-import mergeDeep from './mergeDeep';
+import {
+  SchemaDirectiveVisitor,
+  forEachField,
+  mergeDeep
+} from './utils';
 
 import {
   attachDirectiveResolvers,
@@ -13,7 +16,6 @@ import {
   addSchemaLevelResolveFunction,
   buildSchemaFromTypeDefinitions,
   decorateWithLogger,
-  forEachField,
   SchemaError
 } from './generate';
 
@@ -51,7 +53,7 @@ export function makeExecutableSchema<TContext = any>({
 
   let schema = buildSchemaFromTypeDefinitions(typeDefs, parseOptions);
 
-  schema = addResolveFunctionsToSchema({
+  addResolveFunctionsToSchema({
     schema,
     resolvers: resolverMap,
     resolverValidationOptions,

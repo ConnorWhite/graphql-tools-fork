@@ -2,6 +2,7 @@ import {
   GraphQLSchema,
   GraphQLField,
   ExecutionResult,
+  GraphQLInputType,
   GraphQLType,
   GraphQLNamedType,
   GraphQLFieldResolver,
@@ -10,9 +11,19 @@ import {
   GraphQLTypeResolver,
   GraphQLScalarType,
   DocumentNode,
+  GraphQLEnumValue,
+  GraphQLEnumType,
+  GraphQLUnionType,
+  GraphQLArgument,
+  GraphQLInputField,
+  GraphQLInputObjectType,
+  GraphQLInterfaceType,
+  GraphQLObjectType,
+  InlineFragmentNode,
 } from 'graphql';
 
-import { SchemaDirectiveVisitor } from './schemaVisitor';
+import { SchemaDirectiveVisitor } from './utils/SchemaDirectiveVisitor';
+import { SchemaVisitor } from './utils/SchemaVisitor';
 
 import { ApolloLink } from 'apollo-link';
 
@@ -64,42 +75,50 @@ export interface IFetcherOperation {
 
 export type Dispatcher = (context: any) => ApolloLink | Fetcher;
 
-export type SchemaExecutionConfig = {
+export type SubschemaConfig = {
   schema: GraphQLSchemaWithTransforms;
-};
-
-export type GraphQLSchemaWithTransforms = GraphQLSchema & { transforms?: Array<Transform> };
-
-export type RemoteSchemaExecutionConfig = {
-  schema: GraphQLSchemaWithTransforms;
+  rootValue?: Record<string, any>;
+  executor?: Delegator;
+  subscriber?: Delegator;
   link?: ApolloLink;
   fetcher?: Fetcher;
   dispatcher?: Dispatcher;
+  transforms?: Array<Transform>;
+  mergedTypeConfigs?: Record<string, MergedTypeConfig>;
 };
 
-export function isSchemaExecutionConfig(
-  schema: string | GraphQLSchema | SchemaExecutionConfig | DocumentNode | Array<GraphQLNamedType>
-): schema is SchemaExecutionConfig {
-  return !!(schema as SchemaExecutionConfig).schema;
-}
+export type MergedTypeConfig = {
+  fragment?: string;
+  mergedTypeResolver: MergedTypeResolver;
+};
 
-export function isRemoteSchemaExecutionConfig(
-  schema: GraphQLSchema | SchemaExecutionConfig
-): schema is RemoteSchemaExecutionConfig {
-  return (
-    !!(schema as RemoteSchemaExecutionConfig).dispatcher ||
-    !!(schema as RemoteSchemaExecutionConfig).link ||
-    !!(schema as RemoteSchemaExecutionConfig).fetcher
-  );
-}
+export type MergedTypeResolver = (
+  subschema: GraphQLSchema | SubschemaConfig,
+  originalResult: any,
+  context: Record<string, any>,
+  info: IGraphQLToolsResolveInfo,
+) => any;
 
+export type GraphQLSchemaWithTransforms = GraphQLSchema & { transforms?: Array<Transform> };
+
+export type SchemaLikeObject =
+  SubschemaConfig |
+  GraphQLSchema |
+  string |
+  DocumentNode |
+  Array<GraphQLNamedType>;
+
+export function isSubschemaConfig(value: SchemaLikeObject): value is SubschemaConfig {
+  return !!(value as SubschemaConfig).schema;
+}
 export interface IDelegateToSchemaOptions<TContext = { [key: string]: any }> {
-  schema: GraphQLSchema;
+  schema: GraphQLSchema | SubschemaConfig;
   operation: Operation;
   fieldName: string;
   args?: { [key: string]: any };
   context: TContext;
   info: IGraphQLToolsResolveInfo;
+  rootValue?: Record<string, any>;
   transforms?: Array<Transform>;
   skipValidation?: boolean;
   executor?: Delegator;
@@ -125,8 +144,19 @@ export type MergeInfo = {
     field: string;
     fragment: string;
   }>;
+  replacementFragments: ReplacementFragmentMapping,
+  mergedTypes: MergedTypeMapping,
   delegateToSchema<TContext>(options: IDelegateToSchemaOptions<TContext>): any;
 };
+
+export type ReplacementFragmentMapping = {
+  [typeName: string]: { [fieldName: string]: InlineFragmentNode };
+};
+
+export type MergedTypeMapping = Record<string, {
+  fragment: InlineFragmentNode,
+  subschemas: Array<SubschemaConfig>,
+}>;
 
 export type IFieldResolver<TSource, TContext, TArgs = Record<string, any>> = (
   source: TSource,
@@ -192,6 +222,11 @@ export type IFieldIteratorFn = (
   fieldName: string,
 ) => void;
 
+export type IDefaultValueIteratorFn = (
+  type: GraphQLInputType,
+  value: any,
+) => void;
+
 export type NextResolverFn = () => Promise<any>;
 export type DirectiveResolverFn<TSource = any, TContext = any> = (
   next: NextResolverFn,
@@ -232,10 +267,10 @@ export type OnTypeConflict = (
   right: GraphQLNamedType,
   info?: {
     left: {
-      schema?: GraphQLSchema;
+      schema?: GraphQLSchema | SubschemaConfig;
     };
     right: {
-      schema?: GraphQLSchema;
+      schema?: GraphQLSchema | SubschemaConfig;
     };
   },
 ) => GraphQLNamedType;
@@ -260,3 +295,46 @@ export type GraphQLParseOptions = {
   allowLegacySDLImplementsInterfaces?: boolean;
   experimentalFragmentVariables?: boolean;
 };
+
+export type IndexedObject<V> = { [key: string]: V } | ReadonlyArray<V>;
+
+export type VisitableSchemaType =
+    GraphQLSchema
+  | GraphQLObjectType
+  | GraphQLInterfaceType
+  | GraphQLInputObjectType
+  | GraphQLNamedType
+  | GraphQLScalarType
+  | GraphQLField<any, any>
+  | GraphQLInputField
+  | GraphQLArgument
+  | GraphQLUnionType
+  | GraphQLEnumType
+  | GraphQLEnumValue;
+
+export type VisitorSelector = (
+  type: VisitableSchemaType,
+  methodName: string,
+) => Array<SchemaVisitor | SchemaVisitorMap>;
+
+export enum VisitSchemaKind {
+  TYPE = 'VisitSchemaKind.TYPE',
+  SCALAR_TYPE = 'VisitSchemaKind.SCALAR_TYPE',
+  ENUM_TYPE = 'VisitSchemaKind.ENUM_TYPE',
+  COMPOSITE_TYPE = 'VisitSchemaKind.COMPOSITE_TYPE',
+  OBJECT_TYPE = 'VisitSchemaKind.OBJECT_TYPE',
+  INPUT_OBJECT_TYPE = 'VisitSchemaKind.INPUT_OBJECT_TYPE',
+  ABSTRACT_TYPE = 'VisitSchemaKind.ABSTRACT_TYPE',
+  UNION_TYPE = 'VisitSchemaKind.UNION_TYPE',
+  INTERFACE_TYPE = 'VisitSchemaKind.INTERFACE_TYPE',
+  ROOT_OBJECT = 'VisitSchemaKind.ROOT_OBJECT',
+  QUERY = 'VisitSchemaKind.QUERY',
+  MUTATION = 'VisitSchemaKind.MUTATION',
+  SUBSCRIPTION = 'VisitSchemaKind.SUBSCRIPTION',
+}
+
+export type SchemaVisitorMap = { [key in VisitSchemaKind]?: TypeVisitor };
+export type TypeVisitor = (
+  type: GraphQLType,
+  schema: GraphQLSchema,
+) => GraphQLNamedType | null | undefined;

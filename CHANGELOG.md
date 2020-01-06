@@ -2,6 +2,326 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [8.1.1](https://github.com/yaacovCR/graphql-tools-fork/compare/v8.1.0...v8.1.1) (2020-01-05)
+
+
+### Bug Fixes
+
+* **TransformObjectFields/MapFields:** allow more transformations ([daef1e3](https://github.com/yaacovCR/graphql-tools-fork/commit/daef1e305bf82128cddf7138ced8b7e0c962a5d3))
+* **wrapping:** wrapped field names must be unique. ([98601f7](https://github.com/yaacovCR/graphql-tools-fork/commit/98601f7dbfe8320bef2d156f222c7778a62b0a4e))
+
+## [8.1.0](https://github.com/yaacovCR/graphql-tools-fork/compare/v8.0.2...v8.1.0) (2019-12-31)
+
+
+### Features
+
+* **stitching:** enable proxying uploads ([83f8dd9](https://github.com/yaacovCR/graphql-tools-fork/commit/83f8dd9ed9376392baadcbf4799923c74b93e6ed))
+
+### [8.0.2](https://github.com/yaacovCR/graphql-tools-fork/compare/v8.0.0...v8.0.2) (2019-12-26)
+
+
+### Bug Fixes
+
+* **filterToSchema:** remove map in favor of plain object ([3a4d5f9](https://github.com/yaacovCR/graphql-tools-fork/commit/3a4d5f99eda2cfdfedd4fb75e090df0e8f169b9b))
+
+### [8.0.1](https://github.com/yaacovCR/graphql-tools-fork/compare/v8.0.0...v8.0.1) (2019-12-25)
+
+
+### Bug Fixes
+
+* **stitching:** filter unused variables from map ([3f0c1b3](https://github.com/yaacovCR/graphql-tools-fork/commit/3f0c1b364d1b8d1f97ec5b22502ba5f9f554640c))
+
+## [8.0.0](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.2.3...v8.0.0) (2019-12-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **stitching:** Previous version of createMergedResolver did not work with multiple layers of field wrapping.
+extractFields was not working, deprecated in favor of hoistFieldNodes.
+createMergedResolver now relies on two helper functions, dehoistResult, complement to hoistFieldNoes, and unwrapResult, complement to wrapFieldNodes.
+
+### Features
+
+* **WrapFields:** add new transform ([04dc7f1](https://github.com/yaacovCR/graphql-tools-fork/commit/04dc7f1fa9b8bf95a460bf8dade5daf79c50778b))
+
+
+### Bug Fixes
+
+* **stitching:** wrapping and hoisting field transforms ([9ebad82](https://github.com/yaacovCR/graphql-tools-fork/commit/9ebad8245e801957e7025e65dc694b1a708208b4))
+
+### [7.2.3](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.2.2...v7.2.3) (2019-12-10)
+
+
+### Bug Fixes
+
+* **handleList:** missing context ([d7dc47a](https://github.com/yaacovCR/graphql-tools-fork/commit/d7dc47a))
+
+### [7.2.2](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.2.1...v7.2.2) (2019-12-09)
+
+
+### Bug Fixes
+
+* **WrapType:** fix root type edge case ([c851df0](https://github.com/yaacovCR/graphql-tools-fork/commit/c851df0))
+
+### [7.2.1](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.2.0...v7.2.1) (2019-12-09)
+
+
+### Bug Fixes
+
+* **stitching:** improve error proxying for lists ([045b515](https://github.com/yaacovCR/graphql-tools-fork/commit/045b515))
+
+## [7.2.0](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.1.4...v7.2.0) (2019-11-27)
+
+
+### Bug Fixes
+
+* **stitching:** add test ([372dcdd](https://github.com/yaacovCR/graphql-tools-fork/commit/372dcdd))
+* **transforms:** cloneSchema prior to transformSchema ([b2bda0e](https://github.com/yaacovCR/graphql-tools-fork/commit/b2bda0e))
+
+
+### Features
+
+* **mergeTypes:** adds abiliity to merge types ([563cdce](https://github.com/yaacovCR/graphql-tools-fork/commit/563cdce))
+* **mergeTypes:** initial version ([8e9dd52](https://github.com/yaacovCR/graphql-tools-fork/commit/8e9dd52))
+* **stitching:** precompile fragment replacements ([53e3662](https://github.com/yaacovCR/graphql-tools-fork/commit/53e3662))
+
+### [7.1.4](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.1.3...v7.1.4) (2019-11-07)
+
+
+### Bug Fixes
+
+* **stitching:** don't annotate primitives ([13934ac](https://github.com/yaacovCR/graphql-tools-fork/commit/13934ac))
+
+### [7.1.3](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.1.2...v7.1.3) (2019-11-07)
+
+
+### Bug Fixes
+
+* **stitching:** latest fix breaks zeros ([1ce8015](https://github.com/yaacovCR/graphql-tools-fork/commit/1ce8015))
+
+### [7.1.2](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.1.1...v7.1.2) (2019-11-07)
+
+
+### Bug Fixes
+
+* **stitching:** change merged result format ([c57c15d](https://github.com/yaacovCR/graphql-tools-fork/commit/c57c15d)), closes [#26](https://github.com/yaacovCR/graphql-tools-fork/issues/26)
+
+### [7.1.1](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.1.0...v7.1.1) (2019-11-06)
+
+
+### Bug Fixes
+
+* **stitching:** pass along more errors ([e12b962](https://github.com/yaacovCR/graphql-tools-fork/commit/e12b962)), closes [#26](https://github.com/yaacovCR/graphql-tools-fork/issues/26)
+
+## [7.1.0](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.0.3...v7.1.0) (2019-11-04)
+
+
+### Features
+
+* **mergeSchemas:** allow transform specification ([5efafbe](https://github.com/yaacovCR/graphql-tools-fork/commit/5efafbe))
+
+### [7.0.3](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.0.2...v7.0.3) (2019-10-20)
+
+
+### Bug Fixes
+
+* **deps:** correct graphql peer dependency. ([bd2bc0f](https://github.com/yaacovCR/graphql-tools-fork/commit/bd2bc0f))
+
+### [7.0.2](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.0.1...v7.0.2) (2019-10-13)
+
+
+### Bug Fixes
+
+* **RenameTypes:** add required arg ([75b54c0](https://github.com/yaacovCR/graphql-tools-fork/commit/75b54c0))
+
+### [7.0.1](https://github.com/yaacovCR/graphql-tools-fork/compare/v7.0.0...v7.0.1) (2019-10-13)
+
+
+### Bug Fixes
+
+* **docs:**  expands transforms docs ([bcd55f6](https://github.com/yaacovCR/graphql-tools-fork/commit/bcd55f6))
+* **docs:** use delegateToSchema ([ec00d65](https://github.com/yaacovCR/graphql-tools-fork/commit/ec00d65))
+
+## [7.0.0](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.6.0...v7.0.0) (2019-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **transforms:** Result transforms should be reversed, so that multiple request and result transforms can be properly executed.
+
+Request and result transforms must be inverted when transforming a schema, as these transforms work to move from the final schema back to the original schema.
+
+These CHANGES have the potential to be BREAKING.
+
+### Bug Fixes
+
+* **transforms:** to properly allow chaining. ([b749aeb](https://github.com/yaacovCR/graphql-tools-fork/commit/b749aeb))
+* **types:** enforce VisitSchemaKind enum ([2e60509](https://github.com/yaacovCR/graphql-tools-fork/commit/2e60509))
+
+
+### Features
+
+* **RenameTypes:** remove extra result traversal ([fac833d](https://github.com/yaacovCR/graphql-tools-fork/commit/fac833d))
+
+## [6.6.0](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.5.1...v6.6.0) (2019-10-03)
+
+
+### Features
+
+* **WrapType:** add WrapType transform ([43f13fc](https://github.com/yaacovCR/graphql-tools-fork/commit/43f13fc))
+
+### [6.5.1](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.5.0...v6.5.1) (2019-10-03)
+
+
+### Bug Fixes
+
+* **transforms:** should work with remote schema execution config. ([2661bbd](https://github.com/yaacovCR/graphql-tools-fork/commit/2661bbd))
+
+## [6.5.0](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.4.5...v6.5.0) (2019-09-26)
+
+
+### Features
+
+* **utils:** getResolversFromSchema ([630e9a8](https://github.com/yaacovCR/graphql-tools-fork/commit/630e9a8))
+
+### [6.4.5](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.4.4...v6.4.5) (2019-09-25)
+
+
+### Bug Fixes
+
+* **delegateToSchema:** fix typo breaking refactoring ([cc44841](https://github.com/yaacovCR/graphql-tools-fork/commit/cc44841))
+
+### [6.4.4](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.4.3...v6.4.4) (2019-09-24)
+
+
+### Bug Fixes
+
+* **remote schemas:** must add __typename to remote query to properly resolve interfaces. ([6e5a707](https://github.com/yaacovCR/graphql-tools-fork/commit/6e5a707))
+
+
+
+# Notable list of changes within the fork from the original graphql-tools through v6.4.3
+
+See further below for changes between individual fork versions and above for changes since v6.4.3.
+
+## [6.4.3](https://github.com/yaacovCR/graphql-tools-fork/compare/v4.0.5...v6.4.3) (2019-09-24)
+
+### ⚠ BREAKING CHANGES
+
+* **stitching:** This change allows enums and custom scalars to be used as arguments within merged schemas. It also fixes seralization and deserialization more generally within merged schemas. If an implementation is available for a custom scalar within a merged schema (i.e., the schema is local), the internal representation will be available for use with stitching. Previously, the merged schema internally used the serialized version.
+
+### Bug Fixes
+
+* **generate:** addResolversToSchema should update enums and scalars of original schema. ([f2a7483](https://github.com/yaacovCR/graphql-tools-fork/commit/f2a7483)), closes [#19](https://github.com/yaacovCR/graphql-tools-fork/issues/19)
+* **mocking:** to work with schema stitching ([ea72c6e](https://github.com/yaacovCR/graphql-tools-fork/commit/ea72c6e))
+* **stitching:** add default value support ([4624f5c](https://github.com/yaacovCR/graphql-tools-fork/commit/4624f5c)), closes [#1121](https://github.com/yaacovCR/graphql-tools-fork/issues/1121)
+* **stitching:** Directive disappears when enum has resolvers ([85b16cc](https://github.com/yaacovCR/graphql-tools-fork/commit/85b16cc))
+* **stitching:** fix default resolver to execute field if specified as function. ([5fdc97d](https://github.com/yaacovCR/graphql-tools-fork/commit/5fdc97d))
+* **stitching:** fix lists of enum and custom scalars, closes [#9](https://github.com/yaacovCR/graphql-tools-fork/issues/9) ([2e0241e](https://github.com/yaacovCR/graphql-tools-fork/commit/2e0241e))
+* **stitching:** include specified directives even when merging of directives is disabled ([0a25e9b](https://github.com/yaacovCR/graphql-tools-fork/commit/0a25e9b))
+* **stitching:** input fields without default value ([db3163b](https://github.com/yaacovCR/graphql-tools-fork/commit/db3163b)), closes [#15](https://github.com/yaacovCR/graphql-tools-fork/issues/15)
+* **stitching:** nested enums ([2211068](https://github.com/yaacovCR/graphql-tools-fork/commit/2211068))
+* **stitching:** observabeToAsyncIterator should preserve graphql errors ([86bf0e3](https://github.com/yaacovCR/graphql-tools-fork/commit/86bf0e3))
+* **stitching:** serialize/deserialize enum/custom scalar values ([d3e0888](https://github.com/yaacovCR/graphql-tools-fork/commit/d3e0888))
+* **stitching:** support stitching unions of types with enums ([faae86a](https://github.com/yaacovCR/graphql-tools-fork/commit/faae86a)), closes [#13](https://github.com/yaacovCR/graphql-tools-fork/issues/13)
+* **transforms:** support custom scalar input variables on root fields when transforming. ([a8f2785](https://github.com/yaacovCR/graphql-tools-fork/commit/a8f2785)), closes [#18](https://github.com/yaacovCR/graphql-tools-fork/issues/18)
+* **transforms:** VisitSchemaKind.TYPE should have greatest priority ([a8c544a](https://github.com/yaacovCR/graphql-tools-fork/commit/a8c544a))
+* **types:** export OnTypeConflict type ([557a3a1](https://github.com/yaacovCR/graphql-tools-fork/commit/557a3a1))
+* **typo:** typo in import example (: instead of ;) ([#1122](https://github.com/yaacovCR/graphql-tools-fork/issues/1122)) ([747d0ca](https://github.com/yaacovCR/graphql-tools-fork/commit/747d0ca))
+* **visitSchema:** new interfaces should not break schema. ([e1393b8](https://github.com/yaacovCR/graphql-tools-fork/commit/e1393b8))
+* **visitSchema:** visitSchema must reinitialize private variables when updating interfaces. ([925af85](https://github.com/yaacovCR/graphql-tools-fork/commit/925af85))
+
+
+### Features
+
+* **cloning:** export methods to shallow clone types and directives and deep clone schemas ([470b9c7](https://github.com/yaacovCR/graphql-tools-fork/commit/470b9c7))
+* **errors:** Pass through all possible errors. ([4de91b8](https://github.com/yaacovCR/graphql-tools-fork/commit/4de91b8)), closes [#743](https://github.com/yaacovCR/graphql-tools-fork/issues/743) [#1037](https://github.com/yaacovCR/graphql-tools-fork/issues/1037) [#1046](https://github.com/yaacovCR/graphql-tools-fork/issues/1046) [apollographql/apollo-server#1582](https://github.com/apollographql/apollo-server/issues/1582)
+* **stitching:** allow delegateToSchema, mergeSchemas and transformSchema to take remote schema configurations as parameters ([48cdd59](https://github.com/yaacovCR/graphql-tools-fork/commit/48cdd59))
+* **stitching:** restore onTypeConflict option to mergeSchemas ([afdd01e](https://github.com/yaacovCR/graphql-tools-fork/commit/afdd01e))
+* **transformers:** TransformQuery transformer adds errorPathTransformer property to properly return errors from transformed queries. ([69b963f](https://github.com/yaacovCR/graphql-tools-fork/commit/69b963f))
+* **transforms:** add dedicated filterSchema function to allow schema filtering without a layer of delegation ([98dafae](https://github.com/yaacovCR/graphql-tools-fork/commit/98dafae))
+* **visitSchema:** export consolidated visitSchema method ([23de82b](https://github.com/yaacovCR/graphql-tools-fork/commit/23de82b))
+
+
+
+### [6.4.3](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.4.2...v6.4.3) (2019-09-19)
+
+
+### Bug Fixes
+
+* **release:** v6.4.0-6.4.2 broken ([4733446](https://github.com/yaacovCR/graphql-tools-fork/commit/4733446))
+* **stitching:** observabeToAsyncIterator should preserve graphql errors ([e3ce475](https://github.com/yaacovCR/graphql-tools-fork/commit/e3ce475))
+
+### [6.4.2](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.4.1...v6.4.2) (2019-09-17)
+
+
+### Bug Fixes
+
+* **filterSchema:** should not modify original schema. ([9583011](https://github.com/yaacovCR/graphql-tools-fork/commit/9583011))
+* **visitSchema:** visitSchema must reinitialize private variables when updating interfaces. ([c3bbeaf](https://github.com/yaacovCR/graphql-tools-fork/commit/c3bbeaf))
+
+### [6.4.1](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.4.0...v6.4.1) (2019-09-15)
+
+
+### Bug Fixes
+
+* **cloneSchema:** cloneSchema should preserve extensions ([9b97797](https://github.com/yaacovCR/graphql-tools-fork/commit/9b97797))
+
+## [6.4.0](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.3.7...v6.4.0) (2019-09-15)
+
+
+### Bug Fixes
+
+* **cloneSchema:** healSchema requires a new array for object interfaces and union types. toConfig provides a new map for fields, but not new arrays. ([1ff8bd5](https://github.com/yaacovCR/graphql-tools-fork/commit/1ff8bd5))
+* **transforms:** VisitSchemaKind.TYPE should have greatest priority ([cb61e68](https://github.com/yaacovCR/graphql-tools-fork/commit/cb61e68))
+* **visitSchema:** new interfaces should not break schema. ([27c61f8](https://github.com/yaacovCR/graphql-tools-fork/commit/27c61f8))
+
+
+### Features
+
+* **cloning:** export methods to shallow clone types and directives and deep clone schemas ([1fc62ee](https://github.com/yaacovCR/graphql-tools-fork/commit/1fc62ee))
+* **filterSchema:** provide type argument to type filter ([68d4c1d](https://github.com/yaacovCR/graphql-tools-fork/commit/68d4c1d))
+* **visitSchema:** export consolidated visitSchema method ([02ff450](https://github.com/yaacovCR/graphql-tools-fork/commit/02ff450))
+
+### [6.3.7](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.3.6...v6.3.7) (2019-09-03)
+
+
+### Bug Fixes
+
+* **healSchema:** revert 6.3.6 ([58b98ac](https://github.com/yaacovCR/graphql-tools-fork/commit/58b98ac))
+
+### [6.3.6](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.3.5...v6.3.6) (2019-09-02)
+
+
+### Bug Fixes
+
+* **healSchema:** healing schema requires reparsing default field values as types are updated. ([906752e](https://github.com/yaacovCR/graphql-tools-fork/commit/906752e))
+
+### [6.3.5](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.3.4...v6.3.5) (2019-09-01)
+
+
+### Bug Fixes
+
+* **generate:** addResolversToSchema should update enums and scalars of original schema. ([62cb094](https://github.com/yaacovCR/graphql-tools-fork/commit/62cb094)), closes [#19](https://github.com/yaacovCR/graphql-tools-fork/issues/19)
+
+### [6.3.4](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.3.3...v6.3.4) (2019-08-26)
+
+
+### Bug Fixes
+
+* **transforms:** support custom scalar input variables on root fields when transforming. ([9044976](https://github.com/yaacovCR/graphql-tools-fork/commit/9044976)), closes [#18](https://github.com/yaacovCR/graphql-tools-fork/issues/18)
+
+
+
+### [6.3.3](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.3.2...v6.3.3) (2019-08-20)
+
+
+### Bug Fixes
+
+* **stitching:** input fields without default value ([786a855](https://github.com/yaacovCR/graphql-tools-fork/commit/786a855)), closes [#15](https://github.com/yaacovCR/graphql-tools-fork/issues/15)
+
+
+
 ### [6.3.2](https://github.com/yaacovCR/graphql-tools-fork/compare/v6.3.1...v6.3.2) (2019-08-18)
 
 
@@ -177,6 +497,7 @@ Previously, the merged schema internally used the serialized version.
 
 
 ## [5.0.0](https://github.com/yaacovCR/graphql-tools-fork/compare/v4.0.4...v5.0.0) (2019-06-02)
+
 * First forked version, bumped major version despite lack of breaking changes.
 * Fix `delegateToSchema` to allow delegation to subscriptions with different root field names, allows
   the use of the `RenameRootFields` transform with subscriptions,
@@ -184,6 +505,8 @@ Previously, the merged schema internally used the serialized version.
   [#997](https://github.com/apollographql/graphql-tools/issues/997).  <br/>
 * Add transformers to rename, filter, and arbitrarily transform object fields. <br/>
   Fixes [#819](https://github.com/apollographql/graphql-tools/issues/819).
+
+# Prior changes from graphl-tools:
 
 ### 4.0.5
 
