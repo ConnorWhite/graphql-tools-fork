@@ -26,7 +26,9 @@ export function generateProxyingResolvers(
     schema: GraphQLSchema | SubschemaConfig,
     operation: Operation,
     fieldName: string,
+    argsTransform?: (args: any) => any,
   ) => GraphQLFieldResolver<any, any> = defaultCreateProxyingResolver,
+  argsTransform?: (args: any) => any,
 ): IResolvers {
   const targetSchema = subschemaConfig.schema;
 
@@ -45,6 +47,7 @@ export function generateProxyingResolvers(
           subschemaConfig,
           to.operation,
           to.name,
+          argsTransform,
         ),
       };
     });
@@ -98,24 +101,13 @@ function defaultCreateProxyingResolver(
   subschemaConfig: SubschemaConfig,
   operation: Operation,
   fieldName: string,
+  argsTransform: (args: any) => any = (args) => args,
 ): GraphQLFieldResolver<any, any> {
-  if (isRemoteSchemaExecutionConfig(schema)) {
-    return (parent, args, context, info) => delegateToSchema({
-      ...schema,
-      operation,
-      fieldName,
-      args: {},
-      context,
-      info,
-      transforms,
-    });
-  }
-
   return (parent, args, context, info) => delegateToSchema({
     schema: subschemaConfig,
     operation,
     fieldName,
-    args,
+    args: argsTransform(args),
     context,
     info,
   });

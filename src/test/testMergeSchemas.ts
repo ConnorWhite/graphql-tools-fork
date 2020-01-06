@@ -332,27 +332,6 @@ let schemaDirectiveTypeDefs = `
   }
 `;
 
-function delegateToLocalOrRemote(options: {
-  schema: GraphQLSchema | SchemaExecutionConfig;
-  operation: Operation;
-  fieldName: string;
-  args?: { [key: string]: any };
-  context: any;
-  info: GraphQLResolveInfo;
-  transforms?: Array<Transform>;
-}) {
-  if (isRemoteSchemaExecutionConfig(options.schema)) {
-    return delegateToRemoteSchema({
-      ...options,
-      ...options.schema,
-    });
-  }
-  return delegateToSchema({
-    ...options,
-    schema: options.schema as GraphQLSchema
-  });
-}
-
 testCombinations.forEach(async combination => {
   describe('merging ' + combination.name, () => {
     let mergedSchema: GraphQLSchema,

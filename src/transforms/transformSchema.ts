@@ -16,6 +16,7 @@ import { cloneSchema } from '../utils/clone';
 export function wrapSchema(
   subschema: GraphQLSchema | SubschemaConfig,
   transforms: Array<Transform> = [],
+  transformArgs?: (args: any) => any,
 ): GraphQLSchema {
   if (isSubschemaConfig(subschema)) {
     if (transforms) {
@@ -33,7 +34,7 @@ export function wrapSchema(
 
   addResolveFunctionsToSchema({
     schema,
-    resolvers: generateProxyingResolvers(subschema),
+    resolvers: generateProxyingResolvers(subschema, transformArgs),
     resolverValidationOptions: {
       allowResolversNotInSchema: true,
     },
@@ -45,8 +46,9 @@ export function wrapSchema(
 export default function transformSchema(
   subschema: GraphQLSchema | SubschemaConfig,
   transforms: Array<Transform>,
+  transformArgs?: (args: any) => any,
 ): GraphQLSchema & { transforms: Array<Transform> } {
-  const schema = wrapSchema(subschema, transforms);
+  const schema = wrapSchema(subschema, transforms, transformArgs);
   (schema as any).transforms = transforms.slice().reverse();
   return schema as GraphQLSchema & { transforms: Array<Transform> };
 }
